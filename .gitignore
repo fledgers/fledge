@@ -1,3 +1,16 @@
+# Environment variables (secrets — never commit)
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+build
+
 # Logs
 logs
 *.log
@@ -7,10 +20,18 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Vite
 *.local
+
+# Python (if you use FastAPI later)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local databases
+*.db
+*.sqlite3
 
 # Editor directories and files
 .vscode/*
