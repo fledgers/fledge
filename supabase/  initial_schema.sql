@@ -1,34 +1,13 @@
 create extension if not exists "pgcrypto";
 
--- Canonical values use lowercase slugs (e.g. computer_science).
--- Display labels belong in the frontend/API layer, not in the database.
-
-create table public.majors (
-  slug text primary key,
-  label text not null
-);
-
-create table public.interest_tags (
-  slug text primary key,
-  label text not null
-);
-
-create table public.career_tags (
-  slug text primary key,
-  label text not null
-);
-
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
   university text,
   faculty text,
-  major text references public.majors(slug),
-  year_of_study integer check (year_of_study between 1 and 4),
-  -- lowercase slugs; must match public.interest_tags.slug
+  major text,
+  year_of_study integer check (year_of_study between 1 and 6),
   interests text[] default '{}',
-  -- lowercase slugs; must match public.career_tags.slug
-  career_goals text[] default '{}',
   created_at timestamptz default now()
 );
 
@@ -50,7 +29,6 @@ create table public.opportunities (
       'mentorship',
       'networking',
       'entrepreneurship',
-      'other'
     )
   ),
 
@@ -58,26 +36,15 @@ create table public.opportunities (
   source_url text,
   eligibility text,
 
-  year_min integer check (year_min between 1 and 4),
-  year_max integer check (year_max between 1 and 4),
+  year_min integer check (year_min between 1 and 6),
+  year_max integer check (year_max between 1 and 6),
 
-  -- lowercase slugs; must match public.interest_tags.slug
   interest_tags text[] default '{}',
-  -- lowercase slugs; must match public.career_tags.slug
-  career_tags text[] default '{}',
-  -- lowercase slugs; empty array = open to all majors
-  eligible_majors text[] default '{}',
 
-  delivery_mode text not null default 'unspecified' check (
-    delivery_mode in ('online', 'hybrid', 'in_person', 'unspecified')
-  ),
-  -- venue or campus name; null when not applicable (e.g. fully online)
   location text,
   deadline timestamptz,
 
-  created_at timestamptz default now(),
-
-  constraint opportunities_year_range_valid check (year_min <= year_max)
+  created_at timestamptz default now()
 );
 
 create table public.saved_opportunities (
@@ -88,30 +55,9 @@ create table public.saved_opportunities (
   primary key (user_id, opportunity_id)
 );
 
-alter table public.majors enable row level security;
-alter table public.interest_tags enable row level security;
-alter table public.career_tags enable row level security;
 alter table public.profiles enable row level security;
 alter table public.opportunities enable row level security;
 alter table public.saved_opportunities enable row level security;
-
-create policy "Anyone can view majors"
-on public.majors
-for select
-to anon, authenticated
-using (true);
-
-create policy "Anyone can view interest tags"
-on public.interest_tags
-for select
-to anon, authenticated
-using (true);
-
-create policy "Anyone can view career tags"
-on public.career_tags
-for select
-to anon, authenticated
-using (true);
 
 create policy "Users can view their own profile"
 on public.profiles
@@ -156,74 +102,6 @@ for delete
 to authenticated
 using (auth.uid() = user_id);
 
-insert into public.majors (slug, label) values
-  ('computer_science', 'Computer Science'),
-  ('computer_engineering', 'Computer Engineering'),
-  ('information_systems', 'Information Systems'),
-  ('data_science', 'Data Science'),
-  ('mathematics', 'Mathematics'),
-  ('business', 'Business'),
-  ('engineering', 'Engineering'),
-  ('business_analytics', 'Business Analytics');
-
-insert into public.interest_tags (slug, label) values
-  ('software_development', 'Software Development'),
-  ('programming', 'Programming'),
-  ('technology', 'Technology'),
-  ('career', 'Career'),
-  ('innovation', 'Innovation'),
-  ('teamwork', 'Teamwork'),
-  ('problem_solving', 'Problem Solving'),
-  ('entrepreneurship', 'Entrepreneurship'),
-  ('artificial_intelligence', 'Artificial Intelligence'),
-  ('machine_learning', 'Machine Learning'),
-  ('research', 'Research'),
-  ('python', 'Python'),
-  ('exchange', 'Exchange'),
-  ('global', 'Global'),
-  ('travel', 'Travel'),
-  ('international', 'International'),
-  ('startup', 'Startup'),
-  ('business', 'Business'),
-  ('data_science', 'Data Science'),
-  ('analytics', 'Analytics'),
-  ('volunteering', 'Volunteering'),
-  ('community', 'Community'),
-  ('social_impact', 'Social Impact'),
-  ('leadership', 'Leadership'),
-  ('mentorship', 'Mentorship'),
-  ('networking', 'Networking'),
-  ('guidance', 'Guidance'),
-  ('business_model', 'Business Model'),
-  ('pitching', 'Pitching'),
-  ('general', 'General'),
-  ('student_development', 'Student Development');
-
-insert into public.career_tags (slug, label) values
-  ('software_engineer', 'Software Engineer'),
-  ('full_stack_developer', 'Full-Stack Developer'),
-  ('tech_industry', 'Tech Industry'),
-  ('entrepreneur', 'Entrepreneur'),
-  ('product_manager', 'Product Manager'),
-  ('innovator', 'Innovator'),
-  ('researcher', 'Researcher'),
-  ('data_scientist', 'Data Scientist'),
-  ('academia', 'Academia'),
-  ('global_professional', 'Global Professional'),
-  ('international_career', 'International Career'),
-  ('founder', 'Founder'),
-  ('startup_founder', 'Startup Founder'),
-  ('data_analyst', 'Data Analyst'),
-  ('business_analyst', 'Business Analyst'),
-  ('non_profit', 'Non-Profit'),
-  ('community_leader', 'Community Leader'),
-  ('career_growth', 'Career Growth'),
-  ('professional_development', 'Professional Development'),
-  ('venture_capital', 'Venture Capital'),
-  ('startup_ecosystem', 'Startup Ecosystem'),
-  ('startup_builder', 'Startup Builder'),
-  ('general_career_exploration', 'General Career Exploration');
-
 insert into public.opportunities (
   title,
   description,
@@ -234,9 +112,6 @@ insert into public.opportunities (
   year_min,
   year_max,
   interest_tags,
-  career_tags,
-  eligible_majors,
-  delivery_mode,
   location,
   deadline
 )
@@ -250,11 +125,8 @@ values
   'Basic programming knowledge recommended.',
   1,
   4,
-  array['software_development', 'programming', 'technology', 'career'],
-  array['software_engineer', 'full_stack_developer', 'tech_industry'],
-  array['computer_science', 'computer_engineering', 'information_systems'],
-  'hybrid',
-  null,
+  array['software development', 'programming', 'technology', 'career'],
+  'Hybrid',
   now() + interval '40 days'
 ),
 (
@@ -266,10 +138,7 @@ values
   'Open to all students.',
   1,
   4,
-  array['innovation', 'teamwork', 'problem_solving', 'entrepreneurship'],
-  array['entrepreneur', 'product_manager', 'innovator'],
-  '{}',
-  'in_person',
+  array['innovation', 'teamwork', 'problem solving', 'entrepreneurship'],
   'On campus',
   now() + interval '25 days'
 ),
@@ -282,11 +151,8 @@ values
   'Basic Python knowledge recommended.',
   1,
   4,
-  array['artificial_intelligence', 'machine_learning', 'research', 'python'],
-  array['researcher', 'data_scientist', 'academia'],
-  array['computer_science', 'data_science', 'mathematics'],
-  'in_person',
-  'School of Computing',
+  array['artificial intelligence', 'machine learning', 'research', 'python'],
+  'On campus',
   now() + interval '30 days'
 ),
 (
@@ -299,10 +165,7 @@ values
   1,
   2,
   array['exchange', 'global', 'travel', 'international'],
-  array['global_professional', 'international_career'],
-  '{}',
-  'online',
-  null,
+  'Online',
   now() + interval '21 days'
 ),
 (
@@ -315,9 +178,6 @@ values
   1,
   4,
   array['entrepreneurship', 'startup', 'business', 'innovation'],
-  array['founder', 'entrepreneur', 'startup_founder'],
-  array['business', 'computer_science', 'engineering'],
-  'in_person',
   'On campus',
   now() + interval '60 days'
 ),
@@ -330,11 +190,8 @@ values
   'No prior data science experience required.',
   1,
   4,
-  array['data_science', 'python', 'machine_learning', 'analytics'],
-  array['data_analyst', 'data_scientist', 'business_analyst'],
-  array['computer_science', 'data_science', 'business_analytics'],
-  'online',
-  null,
+  array['data science', 'python', 'machine learning', 'analytics'],
+  'Online',
   now() + interval '75 days'
 ),
 (
@@ -346,10 +203,7 @@ values
   'Open to all students.',
   1,
   4,
-  array['volunteering', 'community', 'social_impact', 'leadership'],
-  array['social_impact', 'non_profit', 'community_leader'],
-  '{}',
-  'in_person',
+  array['volunteering', 'community', 'social impact', 'leadership'],
   'Local community centre',
   now() + interval '20 days'
 ),
@@ -363,10 +217,7 @@ values
   1,
   4,
   array['mentorship', 'career', 'networking', 'guidance'],
-  array['career_growth', 'professional_development'],
-  '{}',
-  'hybrid',
-  null,
+  'Hybrid',
   now() + interval '35 days'
 ),
 (
@@ -379,9 +230,6 @@ values
   1,
   4,
   array['entrepreneurship', 'networking', 'business', 'startup'],
-  array['founder', 'venture_capital', 'startup_ecosystem'],
-  '{}',
-  'in_person',
   'Main Auditorium',
   now() + interval '14 days'
 ),
@@ -394,10 +242,7 @@ values
   'Students should have a startup idea or strong interest in entrepreneurship.',
   1,
   4,
-  array['entrepreneurship', 'startup', 'business_model', 'pitching'],
-  array['founder', 'entrepreneur', 'startup_builder'],
-  array['business', 'computer_science', 'engineering'],
-  'in_person',
+  array['entrepreneurship', 'startup', 'business model', 'pitching'],
   'Innovation Lab',
   now() + interval '50 days'
 ),
@@ -410,28 +255,10 @@ values
   'Open to all students.',
   1,
   4,
-  array['general', 'student_development', 'career'],
-  array['general_career_exploration'],
-  '{}',
-  'unspecified',
-  null,
+  array['general', 'student development', 'career'],
+  'To be confirmed',
   now() + interval '28 days'
 );
-
-create index opportunities_category_idx
-on public.opportunities(category);
-
-create index opportunities_delivery_mode_idx
-on public.opportunities(delivery_mode);
-
-create index opportunities_deadline_idx
-on public.opportunities(deadline);
-
-create index opportunities_year_min_idx
-on public.opportunities(year_min);
-
-create index opportunities_year_max_idx
-on public.opportunities(year_max);
 
 create index saved_opportunities_user_id_idx
 on public.saved_opportunities(user_id);
