@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "crawl:demo": "node backend/crawler/runCrawler.js",
-    "crawl:outlook": "node backend/crawler/runCrawler.js --outlook"
+    "crawl:web": "node backend/crawler/runCrawler.js --web",
+    "crawl:nus": "node backend/crawler/runCrawler.js --nus-web",
+    "crawl:outlook": "node backend/crawler/runCrawler.js --outlook",
+    "crawl:all": "node backend/crawler/runCrawler.js --all"
   },
   "dependencies": {
     "react": "^19.2.6",

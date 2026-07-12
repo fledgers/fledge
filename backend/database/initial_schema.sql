@@ -11,7 +11,7 @@ create table public.majors (
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
-  university text,
+  university text not null default 'nus',
   faculty text,
   major text references public.majors(slug),
   year_of_study integer check (year_of_study between 1 and 4),
@@ -20,6 +20,7 @@ create table public.profiles (
 
 create table public.opportunities (
   id uuid primary key default gen_random_uuid(),
+  school_slug text not null default 'nus',
 
   title text not null,
   description text not null,
@@ -72,6 +73,7 @@ create table public.saved_opportunities (
 
 create table public.opportunity_candidates (
   id uuid primary key default gen_random_uuid(),
+  school_slug text not null default 'nus',
 
   source_type text not null,
   source_message_id text,
@@ -371,6 +373,9 @@ values
 create index opportunities_category_idx
 on public.opportunities(category);
 
+create index opportunities_school_slug_idx
+on public.opportunities(school_slug);
+
 create index opportunities_delivery_mode_idx
 on public.opportunities(delivery_mode);
 
@@ -388,6 +393,9 @@ on public.saved_opportunities(user_id);
 
 create index opportunity_candidates_status_idx
 on public.opportunity_candidates(status);
+
+create index opportunity_candidates_school_slug_idx
+on public.opportunity_candidates(school_slug);
 
 create index opportunity_candidates_score_idx
 on public.opportunity_candidates(candidate_score);

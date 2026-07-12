@@ -1,5 +1,7 @@
 export const DEFAULT_SCHOOL = "nus";
 
+const NUS_HOSTS = ["nus.edu.sg", "www.nus.edu.sg"];
+
 export const OUTLOOK_SEARCH_KEYWORDS = [
   "internship",
   "research assistant",
@@ -22,6 +24,9 @@ export const OUTLOOK_SEARCH_KEYWORDS = [
   "deadline",
 ];
 
+// "school: nus" means the opportunity should be suitable for NUS students.
+// It does not mean the opportunity must be hosted by NUS. External organisers
+// can be added here as public_web sources with their own allowedHosts.
 export const crawlerSources = [
   {
     id: "nus-outlook-user-mailbox",
@@ -31,6 +36,8 @@ export const crawlerSources = [
     enabled: true,
     searchKeywords: OUTLOOK_SEARCH_KEYWORDS,
     defaultCategory: "other",
+    targetAudience: "nus_students",
+    requiresNusStudentEligibility: true,
   },
   {
     id: "nus-cfg-students",
@@ -39,7 +46,12 @@ export const crawlerSources = [
     name: "NUS Centre for Future-ready Graduates",
     url: "https://nus.edu.sg/cfg/students#find-jobs-&-internships",
     enabled: true,
+    allowedHosts: NUS_HOSTS,
     defaultCategory: "internship",
+    sourceTrustBoost: 3,
+    targetAudience: "nus_students",
+    trustedForNusStudents: true,
+    maxLinkedPages: 6,
   },
   {
     id: "nus-gro-student-exchange",
@@ -48,7 +60,12 @@ export const crawlerSources = [
     name: "NUS Global Relations - Student Exchange",
     url: "https://www.nus.edu.sg/gro/global-programmes/student-exchange",
     enabled: true,
+    allowedHosts: NUS_HOSTS,
     defaultCategory: "exchange",
+    sourceTrustBoost: 3,
+    targetAudience: "nus_students",
+    trustedForNusStudents: true,
+    maxLinkedPages: 4,
   },
   {
     id: "nus-gro-summer-winter",
@@ -57,7 +74,12 @@ export const crawlerSources = [
     name: "NUS Global Relations - Summer and Winter Programmes",
     url: "https://www.nus.edu.sg/gro/global-programmes/summer-and-winter-programmes",
     enabled: true,
+    allowedHosts: NUS_HOSTS,
     defaultCategory: "summer_programme",
+    sourceTrustBoost: 3,
+    targetAudience: "nus_students",
+    trustedForNusStudents: true,
+    maxLinkedPages: 6,
   },
   {
     id: "nus-gro-research-attachments",
@@ -66,7 +88,12 @@ export const crawlerSources = [
     name: "NUS Global Relations - Research Attachments",
     url: "https://www.nus.edu.sg/gro/global-programmes/research-attachments",
     enabled: true,
+    allowedHosts: NUS_HOSTS,
     defaultCategory: "research",
+    sourceTrustBoost: 3,
+    targetAudience: "nus_students",
+    trustedForNusStudents: true,
+    maxLinkedPages: 4,
   },
 ];
 

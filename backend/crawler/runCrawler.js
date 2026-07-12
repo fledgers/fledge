@@ -1,11 +1,16 @@
 import { loadLocalEnv, getRequiredEnv } from "./env.js";
-import { OUTLOOK_SEARCH_KEYWORDS } from "./sources.js";
+import { crawlerSources, OUTLOOK_SEARCH_KEYWORDS } from "./sources.js";
 import {
   getAccessTokenFromRefreshToken,
   listRecentMessages,
   searchMessages,
 } from "./outlookClient.js";
-import { parseEmailsToOpportunityCandidates } from "./emailOpportunityParser.js";
+import { fetchPublicWebDocuments } from "./publicWebClient.js";
+import {
+  parseEmailsToOpportunityCandidates,
+  parseWebDocumentsToOpportunityCandidates,
+  scoreOpportunityText,
+} from "./emailOpportunityParser.js";
 import { insertRows } from "./supabaseRest.js";
 
 loadLocalEnv();
@@ -53,6 +58,14 @@ function getFlag(name) {
   return process.argv.includes(name);
 }
 
+function isActiveCandidate(candidate) {
+  const deadline = candidate.opportunity.deadline;
+
+  if (!deadline) return true;
+
+  return new Date(deadline) >= new Date();
+}
+
 async function getOutlookMessages() {
   const refreshToken = getRequiredEnv("OUTLOOK_REFRESH_TOKEN");
   const accessToken = await getAccessTokenFromRefreshToken(refreshToken);
@@ -73,8 +86,13 @@ async function getOutlookMessages() {
   return [...messagesById.values()];
 }
 
+async function getPublicWebDocuments() {
+  return fetchPublicWebDocuments(crawlerSources);
+}
+
 function toCandidateRows(candidates) {
   return candidates.map((candidate) => ({
+    school_slug: candidate.school_slug,
     source_type: candidate.source_type,
     source_message_id: candidate.source_message_id,
     source_url: candidate.source_url,
@@ -89,17 +107,62 @@ function toCandidateRows(candidates) {
 
 async function main() {
   const useOutlook = getFlag("--outlook");
+  const usePublicWeb = getFlag("--web") || getFlag("--nus-web");
+  const useAllSources = getFlag("--all");
   const saveToSupabase = getFlag("--save");
+  const debug = getFlag("--debug");
 
-  const emails = useOutlook ? await getOutlookMessages() : demoEmails;
-  const candidates = parseEmailsToOpportunityCandidates(emails);
+  const candidates = [];
+  let scannedCount = 0;
 
-  console.log(`Scanned ${emails.length} emails.`);
+  if (useOutlook || useAllSources) {
+    const emails = await getOutlookMessages();
+    scannedCount += emails.length;
+    candidates.push(
+      ...parseEmailsToOpportunityCandidates(emails, {
+        schoolSlug: "nus",
+      })
+    );
+  }
+
+  if (usePublicWeb || useAllSources) {
+    const webDocuments = await getPublicWebDocuments();
+    scannedCount += webDocuments.length;
+
+    if (debug) {
+      console.log(
+        webDocuments.map((document) => ({
+          source: document.sourceId,
+          title: document.title,
+          score: scoreOpportunityText(
+            [document.title, document.summary, document.text].join(" ")
+          ) + (document.sourceTrustBoost || 0),
+          url: document.url,
+        }))
+      );
+    }
+
+    candidates.push(...parseWebDocumentsToOpportunityCandidates(webDocuments));
+  }
+
+  if (!useOutlook && !usePublicWeb && !useAllSources) {
+    scannedCount = demoEmails.length;
+    candidates.push(
+      ...parseEmailsToOpportunityCandidates(demoEmails, {
+        schoolSlug: "nus",
+      })
+    );
+  }
+
+  const activeCandidates = candidates.filter(isActiveCandidate);
+
+  console.log(`Scanned ${scannedCount} source items.`);
   console.log(`Found ${candidates.length} possible opportunities.`);
-  console.log(JSON.stringify(candidates, null, 2));
+  console.log(`Kept ${activeCandidates.length} opportunities with active/no deadline.`);
+  console.log(JSON.stringify(activeCandidates, null, 2));
 
   if (saveToSupabase) {
-    const rows = toCandidateRows(candidates);
+    const rows = toCandidateRows(activeCandidates);
     const savedRows = await insertRows("opportunity_candidates", rows);
     console.log(`Saved ${savedRows.length} candidates to Supabase.`);
   }

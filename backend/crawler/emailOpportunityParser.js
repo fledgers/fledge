@@ -626,7 +626,123 @@ function includesAny(text, keywords) {
   return keywords.some((keyword) => keywordMatches(text, keyword));
 }
 
-function scoreEmail(text) {
+const NUS_STUDENT_ELIGIBILITY_SIGNALS = [
+  "nus students",
+  "nus student",
+  "national university of singapore",
+  "university students",
+  "university student",
+  "undergraduate students",
+  "undergraduate student",
+  "full-time students",
+  "full time students",
+  "tertiary students",
+  "tertiary student",
+  "polytechnic and university students",
+  "students in singapore",
+  "singapore students",
+  "singaporean students",
+  "students based in singapore",
+  "open to all students",
+  "open to students",
+  "students interested",
+  "student interested",
+  "student teams",
+  "student competition",
+  "student hackathon",
+  "student programme",
+  "student program",
+];
+
+const OPEN_ELIGIBILITY_SIGNALS = [
+  "open to all",
+  "no prior experience required",
+  "all majors welcome",
+  "all disciplines welcome",
+  "all faculties welcome",
+  "all years welcome",
+  "students from all disciplines",
+  "students from any discipline",
+];
+
+const INELIGIBLE_AUDIENCE_SIGNALS = [
+  "working adults",
+  "working professionals",
+  "mid-career",
+  "mid career",
+  "full-time employees",
+  "full time employees",
+  "employees only",
+  "staff only",
+  "professionals only",
+  "not open to students",
+  "graduates only",
+  "postgraduate students only",
+  "masters students only",
+  "phd students only",
+  "minimum 2 years of work experience",
+  "minimum 3 years of work experience",
+  "minimum 5 years of work experience",
+];
+
+const FOREIGN_ONLY_PATTERNS = [
+  /\b(?:us|u\.s\.|united states|uk|u\.k\.|united kingdom|australian|canadian|indian|malaysian|indonesian|thai|vietnamese|japanese|korean|chinese)\s+(?:citizens|residents|nationals)\s+only\b/i,
+  /\bonly\s+open\s+to\s+(?:citizens|residents|nationals)\s+of\s+(?!singapore\b)[a-z .-]+\b/i,
+  /\bmust\s+be\s+(?:a\s+)?(?:us|u\.s\.|uk|u\.k\.|australian|canadian|indian|malaysian|indonesian)\s+(?:citizen|resident|national)\b/i,
+];
+
+function findFirstSignal(text, signals) {
+  return signals.find((signal) => keywordMatches(text, signal));
+}
+
+function assessNusStudentEligibility(text, options = {}) {
+  const lowerText = text.toLowerCase();
+
+  const ineligibleSignal = findFirstSignal(lowerText, INELIGIBLE_AUDIENCE_SIGNALS);
+  if (ineligibleSignal) {
+    return {
+      eligible: false,
+      reason: `Rejected because it looks targeted at ${ineligibleSignal}.`,
+    };
+  }
+
+  if (FOREIGN_ONLY_PATTERNS.some((pattern) => pattern.test(text))) {
+    return {
+      eligible: false,
+      reason: "Rejected because it looks restricted to another country's citizens/residents.",
+    };
+  }
+
+  if (options.trustedForNusStudents) {
+    return {
+      eligible: true,
+      reason: "Trusted NUS student source.",
+    };
+  }
+
+  const nusSignal = findFirstSignal(lowerText, NUS_STUDENT_ELIGIBILITY_SIGNALS);
+  if (nusSignal) {
+    return {
+      eligible: true,
+      reason: `Matched student eligibility signal: ${nusSignal}.`,
+    };
+  }
+
+  const openSignal = findFirstSignal(lowerText, OPEN_ELIGIBILITY_SIGNALS);
+  if (openSignal && /singapore|student|undergraduate|university|tertiary|nus/i.test(text)) {
+    return {
+      eligible: true,
+      reason: `Matched open eligibility signal: ${openSignal}.`,
+    };
+  }
+
+  return {
+    eligible: false,
+    reason: "Rejected because no clear NUS/student eligibility signal was found.",
+  };
+}
+
+export function scoreOpportunityText(text) {
   const lowerText = text.toLowerCase();
   let score = 0;
 
@@ -668,14 +784,14 @@ function scoreEmail(text) {
   return score;
 }
 
-function detectCategory(text) {
+function detectCategory(text, fallbackCategory = "other") {
   const lowerText = text.toLowerCase();
 
   for (const rule of CATEGORY_RULES) {
     if (includesAny(lowerText, rule.keywords)) return rule.category;
   }
 
-  return "other";
+  return fallbackCategory;
 }
 
 function detectEligibleMajors(text) {
@@ -799,34 +915,63 @@ function cleanTitle(subject) {
   );
 }
 
-export function parseEmailToOpportunityCandidate(email) {
-  const text = getEmailText(email);
-  const candidateScore = scoreEmail(text);
+export function parseTextToOpportunityCandidate({
+  sourceType,
+  sourceId,
+  sourceUrl,
+  rawTitle = "",
+  rawSender = "",
+  receivedAt = null,
+  title = "Untitled opportunity",
+  descriptionText = "",
+  fullText = "",
+  organisation = "Unknown organisation",
+  schoolSlug = "nus",
+  defaultCategory = "other",
+  scoreBoost = 0,
+  requiresNusStudentEligibility = true,
+  trustedForNusStudents = false,
+  minScore = 4,
+}) {
+  const text = normalizeWhitespace(
+    [title, descriptionText, fullText].filter(Boolean).join(" ")
+  );
+  const candidateScore = scoreOpportunityText(text) + scoreBoost;
 
-  if (candidateScore < 4) {
+  if (candidateScore < minScore) {
     return null;
   }
 
-  const category = detectCategory(text);
+  const eligibilityAssessment = assessNusStudentEligibility(text, {
+    trustedForNusStudents,
+  });
+
+  if (requiresNusStudentEligibility && !eligibilityAssessment.eligible) {
+    return null;
+  }
+
+  const category = detectCategory(text, defaultCategory);
   const deliveryMode = detectDeliveryMode(text);
   const yearRange = detectYearRange(text);
 
   return {
-    source_type: "outlook_email",
-    source_message_id: email.id || email.internetMessageId || null,
-    source_url: email.webLink || extractFirstUrl(text),
-    raw_subject: email.subject || "",
-    raw_sender: email.from?.emailAddress?.address || "",
-    received_at: email.receivedDateTime || null,
+    school_slug: schoolSlug,
+    source_type: sourceType,
+    source_message_id: sourceId || sourceUrl || null,
+    source_url: sourceUrl || extractFirstUrl(text),
+    raw_subject: rawTitle,
+    raw_sender: rawSender,
+    received_at: receivedAt,
     candidate_score: candidateScore,
     status: "pending",
     opportunity: {
-      title: cleanTitle(email.subject || "Untitled opportunity"),
-      description: buildDescription(getEmailBodyText(email) || text),
+      school_slug: schoolSlug,
+      title: cleanTitle(title),
+      description: buildDescription(descriptionText || fullText || text),
       category,
-      organisation: inferOrganisation(email),
-      source_url: email.webLink || extractFirstUrl(text),
-      eligibility: null,
+      organisation,
+      source_url: sourceUrl || extractFirstUrl(text),
+      eligibility: eligibilityAssessment.reason,
       ...yearRange,
       eligible_majors: detectEligibleMajors(text),
       delivery_mode: deliveryMode,
@@ -836,8 +981,56 @@ export function parseEmailToOpportunityCandidate(email) {
   };
 }
 
-export function parseEmailsToOpportunityCandidates(emails) {
+export function parseEmailToOpportunityCandidate(email, options = {}) {
+  const text = getEmailText(email);
+
+  return parseTextToOpportunityCandidate({
+    sourceType: "outlook_email",
+    sourceId: email.id || email.internetMessageId || null,
+    sourceUrl: email.webLink || extractFirstUrl(text),
+    rawTitle: email.subject || "",
+    rawSender: email.from?.emailAddress?.address || "",
+    receivedAt: email.receivedDateTime || null,
+    title: email.subject || "Untitled opportunity",
+    descriptionText: getEmailBodyText(email),
+    fullText: text,
+    organisation: inferOrganisation(email),
+    schoolSlug: options.schoolSlug || "nus",
+    defaultCategory: options.defaultCategory || "other",
+    requiresNusStudentEligibility: options.requiresNusStudentEligibility ?? true,
+    trustedForNusStudents: options.trustedForNusStudents || false,
+  });
+}
+
+export function parseEmailsToOpportunityCandidates(emails, options = {}) {
   return emails
-    .map((email) => parseEmailToOpportunityCandidate(email))
+    .map((email) => parseEmailToOpportunityCandidate(email, options))
+    .filter(Boolean);
+}
+
+export function parseWebDocumentToOpportunityCandidate(document) {
+  return parseTextToOpportunityCandidate({
+    sourceType: "public_web",
+    sourceId: document.id,
+    sourceUrl: document.url,
+    rawTitle: document.title,
+    rawSender: document.sourceName,
+    receivedAt: document.fetchedAt,
+    title: document.title || document.sourceName,
+    descriptionText: document.summary || document.text,
+    fullText: document.text,
+    organisation: document.sourceName,
+    schoolSlug: document.school || "nus",
+    defaultCategory: document.defaultCategory || "other",
+    scoreBoost: document.sourceTrustBoost || 0,
+    requiresNusStudentEligibility: document.requiresNusStudentEligibility ?? true,
+    trustedForNusStudents: document.trustedForNusStudents || false,
+    minScore: 3,
+  });
+}
+
+export function parseWebDocumentsToOpportunityCandidates(documents) {
+  return documents
+    .map((document) => parseWebDocumentToOpportunityCandidate(document))
     .filter(Boolean);
 }
