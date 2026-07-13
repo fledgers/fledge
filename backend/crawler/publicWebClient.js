@@ -1,22 +1,42 @@
 const PUBLIC_WEB_LINK_KEYWORDS = [
   "apply",
   "application",
+  "apprenticeship",
+  "apprenticeships",
+  "award",
+  "awards",
   "career",
+  "careers",
+  "challenge",
+  "challenges",
   "competition",
+  "competitions",
   "exchange",
   "fellowship",
+  "grant",
+  "grants",
   "hackathon",
+  "innovation",
   "internship",
+  "internships",
   "job",
+  "jobs",
   "opportunities",
   "opportunity",
   "programme",
+  "programmes",
   "program",
+  "programs",
   "research",
   "scholarship",
+  "scholarships",
   "student-exchange",
   "summer",
+  "talent",
+  "volunteer",
+  "volunteering",
   "winter",
+  "youth",
 ];
 
 function decodeHtmlEntities(text) {
@@ -83,6 +103,7 @@ function isAllowedHost(url, allowedHosts = []) {
 
 function extractLinks(html, baseUrl, allowedHosts) {
   const links = [];
+  const seenUrls = new Set();
   const linkPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let match;
 
@@ -92,7 +113,9 @@ function extractLinks(html, baseUrl, allowedHosts) {
       const text = stripHtml(match[2]);
 
       if (!text || !isAllowedHost(url, allowedHosts)) continue;
+      if (seenUrls.has(url)) continue;
 
+      seenUrls.add(url);
       links.push({ url, text });
     } catch {
       // Ignore invalid links such as mailto:, tel:, javascript:, and malformed URLs.
@@ -157,15 +180,20 @@ function createWebDocument(source, url, html, fallbackTitle) {
 export async function fetchPublicWebSource(source) {
   const rootUrl = normalizeUrl(source.url);
   const rootHtml = await fetchHtml(rootUrl);
+  const seenUrls = new Set([rootUrl]);
   const documents = [createWebDocument(source, rootUrl, rootHtml, source.name)];
 
   const relevantLinks = extractLinks(rootHtml, rootUrl, source.allowedHosts)
     .filter(isLikelyOpportunityLink)
+    .filter((link) => !seenUrls.has(link.url))
     .slice(0, source.maxLinkedPages ?? 4);
 
   for (const link of relevantLinks) {
     try {
+      if (seenUrls.has(link.url)) continue;
+
       const linkedHtml = await fetchHtml(link.url);
+      seenUrls.add(link.url);
       documents.push(createWebDocument(source, link.url, linkedHtml, link.text));
     } catch (error) {
       console.warn(`Skipping linked page: ${error.message}`);

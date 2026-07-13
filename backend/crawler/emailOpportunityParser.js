@@ -634,6 +634,7 @@ const NUS_STUDENT_ELIGIBILITY_SIGNALS = [
   "university student",
   "undergraduate students",
   "undergraduate student",
+  "undergraduates",
   "full-time students",
   "full time students",
   "tertiary students",
@@ -652,6 +653,14 @@ const NUS_STUDENT_ELIGIBILITY_SIGNALS = [
   "student hackathon",
   "student programme",
   "student program",
+  "students and graduates",
+  "student and graduate",
+  "youth",
+  "youths",
+  "young singaporeans",
+  "singapore youth",
+  "youth-led",
+  "youth led",
 ];
 
 const OPEN_ELIGIBILITY_SIGNALS = [
