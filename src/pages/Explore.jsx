@@ -59,7 +59,7 @@ export default function Explore() {
       results = results.filter(o => activeCategories.includes(o.category));
     }
 
-    // Major filter — opportunities with no eligible_majors are open to all
+    // Only explicit major restrictions remove an opportunity from the results.
     if (selectedMajor) {
       results = results.filter(o => matchesMajor(o, selectedMajor));
     }

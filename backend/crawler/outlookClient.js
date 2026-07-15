@@ -1,6 +1,7 @@
 import { getRequiredEnv } from "./env.js";
 
 const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
+const OUTLOOK_IMMUTABLE_ID_PREFERENCE = 'IdType="ImmutableId"';
 
 function getTenantId() {
   return process.env.MICROSOFT_TENANT_ID || "common";
@@ -62,6 +63,7 @@ export async function listRecentMessages(accessToken, { top = 25 } = {}) {
   const response = await requestJson(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
+      Prefer: OUTLOOK_IMMUTABLE_ID_PREFERENCE,
     },
   });
 
@@ -89,6 +91,7 @@ export async function searchMessages(accessToken, searchText, { top = 25 } = {})
   const response = await requestJson(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
+      Prefer: OUTLOOK_IMMUTABLE_ID_PREFERENCE,
     },
   });
 

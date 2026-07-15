@@ -22,12 +22,15 @@ test("builds a concise candidate summary for review", () => {
     id: "candidate-id",
     score: 12,
     confidence: 75,
+    autoPublish: "no",
     title: "Example Winter Programme",
     category: "winter_programme",
     organisation: "Example University",
     deadline: "18 October 2026 at 11:59 PM EDT",
     application: "Not stated",
     reviewReasons: "missing_application_url, year_requirements_not_stated",
+    automationReasons: "None",
+    changes: 0,
     source: "https://example.edu/programme",
   });
 });

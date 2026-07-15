@@ -1,0 +1,53 @@
+name: Crawl opportunities
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+      timezone: "Asia/Singapore"
+  workflow_dispatch:
+    inputs:
+      include_outlook:
+        description: "Include the connected Outlook mailbox"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fledge-opportunity-crawler
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+      MICROSOFT_TENANT_ID: ${{ secrets.MICROSOFT_TENANT_ID }}
+      MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+      OUTLOOK_REFRESH_TOKEN: ${{ secrets.OUTLOOK_REFRESH_TOKEN }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Crawl public websites
+        if: github.event_name == 'schedule' || inputs.include_outlook != true
+        run: npm run crawl:web -- --save
+
+      - name: Crawl public websites and Outlook
+        if: github.event_name == 'workflow_dispatch' && inputs.include_outlook == true
+        run: npm run crawl:all -- --save

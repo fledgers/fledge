@@ -1,6 +1,58 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseWebDocumentToOpportunityCandidate } from "./emailOpportunityParser.js";
+import {
+  parseEmailToOpportunityCandidate,
+  parseWebDocumentToOpportunityCandidate,
+} from "./emailOpportunityParser.js";
+
+test("uses the internet message ID as the stable Outlook source identity", () => {
+  const candidate = parseEmailToOpportunityCandidate(
+    {
+      id: "graph-folder-dependent-id",
+      internetMessageId: "<stable-message-id@example.edu>",
+      subject: "Applications open for NUS Student Innovation Competition",
+      from: {
+        emailAddress: {
+          name: "NUS Enterprise",
+          address: "enterprise@nus.edu.sg",
+        },
+      },
+      receivedDateTime: "2026-07-15T01:00:00Z",
+      bodyPreview: "Open to all NUS students. Deadline: 30 August 2026.",
+      body: {
+        contentType: "text",
+        content:
+          "Open to all NUS students. Deadline: 30 August 2026. Apply at https://example.edu/apply.",
+      },
+      webLink: "https://outlook.office.com/mail/message",
+    },
+    { sourcePriority: 1 }
+  );
+
+  assert.ok(candidate);
+  assert.equal(candidate.source_message_id, "<stable-message-id@example.edu>");
+});
+
+test("rejects sources that explicitly say applications are closed", () => {
+  const candidate = parseEmailToOpportunityCandidate({
+    id: "closed-message",
+    subject: "Student Innovation Competition",
+    from: {
+      emailAddress: {
+        name: "NUS Enterprise",
+        address: "enterprise@nus.edu.sg",
+      },
+    },
+    receivedDateTime: "2026-07-15T01:00:00Z",
+    bodyPreview: "Applications are closed.",
+    body: {
+      contentType: "text",
+      content: "Applications are closed. This competition was open to NUS students.",
+    },
+  });
+
+  assert.equal(candidate, null);
+});
 
 test("parses an NUS partner winter-programme PDF as a specific opportunity", () => {
   const candidate = parseWebDocumentToOpportunityCandidate({
@@ -82,6 +134,10 @@ test("converts an explicitly zoned deadline into a UTC instant", () => {
   assert.equal(candidate.last_seen_at, "2026-07-14T00:00:00.000Z");
   assert.equal(candidate.confidence_score, 100);
   assert.deepEqual(candidate.review_reasons, []);
+  assert.equal(candidate.opportunity.major_eligibility_type, "all");
+  assert.equal(candidate.opportunity.year_eligibility_type, "all");
+  assert.ok(candidate.dedupe_key.startsWith("application:"));
+  assert.equal(candidate.auto_publish_eligible, true);
 });
 
 test("does not assume Singapore time when the source omits a timezone", () => {
@@ -107,4 +163,25 @@ test("does not assume Singapore time when the source omits a timezone", () => {
   assert.equal(candidate.opportunity.deadline, "2026-10-18T00:00:00.000Z");
   assert.equal(candidate.opportunity.deadline_has_time, true);
   assert.equal(candidate.opportunity.deadline_source_timezone, null);
+});
+
+test("rejects a general web directory with no deadline or application route", () => {
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: "general-directory",
+    school: "nus",
+    sourceId: "general-directory",
+    sourceName: "NUS Global Relations",
+    url: "https://nus.edu.sg/global-programmes",
+    title: "Global Programmes",
+    summary: "Explore exchange, research and summer programmes.",
+    text: "Explore exchange, research and summer programmes for NUS students.",
+    defaultCategory: "exchange",
+    minScore: 1,
+    sourcePriority: 1,
+    sourceTrustBoost: 3,
+    trustedForNusStudents: true,
+    fetchedAt: "2026-07-15T00:00:00.000Z",
+  });
+
+  assert.equal(candidate, null);
 });

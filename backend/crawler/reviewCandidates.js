@@ -24,12 +24,15 @@ export function buildCandidateSummary(candidate) {
     id: candidate.id,
     score: candidate.candidate_score,
     confidence: candidate.confidence_score ?? opportunity.confidence_score ?? 0,
+    autoPublish: candidate.auto_publish_eligible ? "yes" : "no",
     title: opportunity.title || candidate.raw_subject || "Untitled opportunity",
     category: opportunity.category || "other",
     organisation: opportunity.organisation || "Not stated",
     deadline: opportunity.deadline_source_text || opportunity.deadline || "Not stated",
     application: candidate.application_url || opportunity.application_url || "Not stated",
     reviewReasons: candidate.review_reasons?.join(", ") || "None",
+    automationReasons: candidate.auto_publish_reasons?.join(", ") || "None",
+    changes: candidate.change_count ?? 0,
     source: candidate.source_url || "Not stated",
   };
 }
@@ -38,7 +41,7 @@ async function listPendingCandidates() {
   const expiredCount = await callRpc("expire_past_opportunity_candidates");
   const candidates = await selectRows("opportunity_candidates", {
     select:
-      "id,candidate_score,confidence_score,review_reasons,source_url,application_url,raw_subject,extracted_opportunity,created_at",
+      "id,candidate_score,confidence_score,review_reasons,auto_publish_eligible,auto_publish_reasons,change_count,source_url,application_url,raw_subject,extracted_opportunity,created_at",
     status: "eq.pending",
     order: "candidate_score.desc,created_at.desc",
     limit: "50",

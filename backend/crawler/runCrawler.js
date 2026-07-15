@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { loadLocalEnv, getRequiredEnv } from "./env.js";
 import {
   crawlerSources,
@@ -15,7 +16,7 @@ import {
   parseWebDocumentsToOpportunityCandidates,
   scoreOpportunityText,
 } from "./emailOpportunityParser.js";
-import { callRpc, insertRows } from "./supabaseRest.js";
+import { callRpc } from "./supabaseRest.js";
 
 loadLocalEnv();
 
@@ -132,32 +133,89 @@ function isNusWebSource(source) {
   );
 }
 
-async function getPublicWebDocuments({ nusOnly = false } = {}) {
+async function getPublicWebDocuments({ nusOnly = false, onSourceResult } = {}) {
   const sources = nusOnly ? crawlerSources.filter(isNusWebSource) : crawlerSources;
 
-  return fetchPublicWebDocuments(sources);
+  return fetchPublicWebDocuments(sources, { onSourceResult });
 }
 
-function toCandidateRows(candidates) {
-  return candidates.map((candidate) => ({
-    school_slug: candidate.school_slug,
-    source_type: candidate.source_type,
-    source_message_id: candidate.source_message_id,
-    source_url: candidate.source_url,
-    application_url: candidate.application_url,
-    raw_subject: candidate.raw_subject,
-    raw_sender: candidate.raw_sender,
-    received_at: candidate.received_at,
-    source_published_at: candidate.source_published_at,
-    last_seen_at: candidate.last_seen_at,
-    content_hash: candidate.content_hash,
-    source_priority: candidate.source_priority,
-    candidate_score: candidate.candidate_score,
-    confidence_score: candidate.confidence_score,
-    review_reasons: candidate.review_reasons,
-    status: candidate.status,
-    extracted_opportunity: candidate.opportunity,
-  }));
+function getRunMode({ useAllSources, useNusWeb, useOutlook, usePublicWeb }) {
+  if (useAllSources) return "all";
+  if (useOutlook) return "outlook";
+  if (useNusWeb && usePublicWeb) return "nus_web";
+  if (usePublicWeb) return "web";
+  return "demo";
+}
+
+async function finishCrawlerRunSafely(runId, status, summary, errorMessage = null) {
+  if (!runId) return;
+
+  try {
+    await callRpc("finish_crawler_run", {
+      run_id: runId,
+      run_status: status,
+      run_summary: summary,
+      failure_message: errorMessage,
+    });
+  } catch (error) {
+    console.warn(`Could not finish crawler run log: ${error.message}`);
+  }
+}
+
+export function buildRunSummary({
+  scannedCount,
+  candidateCount,
+  activeCount,
+  ingestion,
+  autoPublication,
+  sourceResults,
+}) {
+  return {
+    scanned_count: scannedCount,
+    candidate_count: candidateCount,
+    active_count: activeCount,
+    inserted_count: ingestion.inserted || 0,
+    refreshed_count: ingestion.refreshed || 0,
+    changed_count: ingestion.changed || 0,
+    auto_published_count: autoPublication.published || 0,
+    source_results: sourceResults,
+  };
+}
+
+export function toCandidateRows(candidates) {
+  return candidates.map((candidate) => {
+    const sourceType = candidate.source_type;
+    const sourceMessageId = candidate.source_message_id || candidate.source_url;
+
+    if (!sourceType || !sourceMessageId) {
+      throw new Error(
+        `Candidate "${candidate.raw_subject || "Untitled opportunity"}" has no stable source identity.`
+      );
+    }
+
+    return {
+      school_slug: candidate.school_slug,
+      source_type: sourceType,
+      source_message_id: sourceMessageId,
+      source_url: candidate.source_url,
+      application_url: candidate.application_url,
+      raw_subject: candidate.raw_subject,
+      raw_sender: candidate.raw_sender,
+      received_at: candidate.received_at,
+      source_published_at: candidate.source_published_at,
+      last_seen_at: candidate.last_seen_at,
+      content_hash: candidate.content_hash,
+      source_priority: candidate.source_priority,
+      candidate_score: candidate.candidate_score,
+      confidence_score: candidate.confidence_score,
+      review_reasons: candidate.review_reasons,
+      dedupe_key: candidate.dedupe_key,
+      extraction_evidence: candidate.extraction_evidence,
+      auto_publish_eligible: candidate.auto_publish_eligible,
+      auto_publish_reasons: candidate.auto_publish_reasons,
+      extracted_opportunity: candidate.opportunity,
+    };
+  });
 }
 
 async function main() {
@@ -167,77 +225,163 @@ async function main() {
   const useAllSources = getFlag("--all");
   const saveToSupabase = getFlag("--save");
   const debug = getFlag("--debug");
-
   const candidates = [];
+  const sourceResults = [];
   let scannedCount = 0;
-
-  if (useOutlook || useAllSources) {
-    const outlookSource = getSourceByType("outlook_mailbox");
-    const emails = await getOutlookMessages();
-    scannedCount += emails.length;
-    candidates.push(
-      ...parseEmailsToOpportunityCandidates(emails, {
-        schoolSlug: "nus",
-        sourcePriority: outlookSource?.sourcePriority,
-      })
-    );
-  }
-
-  if (usePublicWeb || useAllSources) {
-    const webDocuments = await getPublicWebDocuments({
-      nusOnly: useNusWeb && !getFlag("--web") && !useAllSources,
-    });
-    scannedCount += webDocuments.length;
-
-    if (debug) {
-      console.log(
-        webDocuments.map((document) => ({
-          source: document.sourceId,
-          priority: document.sourcePriority,
-          title: document.title,
-          score: scoreOpportunityText(
-            [document.title, document.summary, document.text].join(" ")
-          ) + (document.sourceTrustBoost || 0),
-          url: document.url,
-        }))
-      );
-    }
-
-    candidates.push(...parseWebDocumentsToOpportunityCandidates(webDocuments));
-  }
-
-  if (!useOutlook && !usePublicWeb && !useAllSources) {
-    const outlookSource = getSourceByType("outlook_mailbox");
-    scannedCount = demoEmails.length;
-    candidates.push(
-      ...parseEmailsToOpportunityCandidates(demoEmails, {
-        schoolSlug: "nus",
-        sourcePriority: outlookSource?.sourcePriority,
-      })
-    );
-  }
-
-  const activeCandidates = candidates.filter(isActiveCandidate).sort(compareCandidates);
-
-  console.log(`Scanned ${scannedCount} source items.`);
-  console.log(`Found ${candidates.length} possible opportunities.`);
-  console.log(`Kept ${activeCandidates.length} opportunities with active/no deadline.`);
-  console.log(JSON.stringify(activeCandidates, null, 2));
+  let activeCandidateCount = 0;
+  let ingestion = { inserted: 0, refreshed: 0, changed: 0, processed: 0 };
+  let autoPublication = { published: 0, failed: 0 };
+  let crawlerRunId = null;
+  const runMode = getRunMode({
+    useAllSources,
+    useNusWeb,
+    useOutlook,
+    usePublicWeb,
+  });
 
   if (saveToSupabase) {
-    const expiredCount = await callRpc("expire_past_opportunity_candidates");
-    const rows = toCandidateRows(activeCandidates);
-    const savedRows = await insertRows("opportunity_candidates", rows);
+    crawlerRunId = await callRpc("start_crawler_run", { run_mode: runMode });
+  }
 
-    if (expiredCount > 0) {
-      console.log(`Marked ${expiredCount} past candidate${expiredCount === 1 ? "" : "s"} as expired.`);
+  try {
+    if (useOutlook || useAllSources) {
+      const outlookSource = getSourceByType("outlook_mailbox");
+
+      try {
+        const emails = await getOutlookMessages();
+        scannedCount += emails.length;
+        candidates.push(
+          ...parseEmailsToOpportunityCandidates(emails, {
+            schoolSlug: "nus",
+            sourcePriority: outlookSource?.sourcePriority,
+          })
+        );
+        sourceResults.push({
+          source_id: outlookSource?.id || "outlook_mailbox",
+          source_type: "outlook_mailbox",
+          status: "completed",
+          document_count: emails.length,
+        });
+      } catch (error) {
+        sourceResults.push({
+          source_id: outlookSource?.id || "outlook_mailbox",
+          source_type: "outlook_mailbox",
+          status: "failed",
+          document_count: 0,
+          error: error.message,
+        });
+        throw error;
+      }
     }
 
-    console.log(`Saved ${savedRows.length} candidates to Supabase.`);
+    if (usePublicWeb || useAllSources) {
+      const webDocuments = await getPublicWebDocuments({
+        nusOnly: useNusWeb && !getFlag("--web") && !useAllSources,
+        onSourceResult: (result) => sourceResults.push(result),
+      });
+      scannedCount += webDocuments.length;
+
+      if (debug) {
+        console.log(
+          webDocuments.map((document) => ({
+            source: document.sourceId,
+            priority: document.sourcePriority,
+            title: document.title,
+            score: scoreOpportunityText(
+              [document.title, document.summary, document.text].join(" ")
+            ) + (document.sourceTrustBoost || 0),
+            url: document.url,
+          }))
+        );
+      }
+
+      candidates.push(...parseWebDocumentsToOpportunityCandidates(webDocuments));
+    }
+
+    if (!useOutlook && !usePublicWeb && !useAllSources) {
+      const outlookSource = getSourceByType("outlook_mailbox");
+      scannedCount = demoEmails.length;
+      candidates.push(
+        ...parseEmailsToOpportunityCandidates(demoEmails, {
+          schoolSlug: "nus",
+          sourcePriority: outlookSource?.sourcePriority,
+        })
+      );
+      sourceResults.push({
+        source_id: "demo_outlook",
+        source_type: "demo",
+        status: "completed",
+        document_count: demoEmails.length,
+      });
+    }
+
+    const activeCandidates = candidates.filter(isActiveCandidate).sort(compareCandidates);
+    activeCandidateCount = activeCandidates.length;
+
+    console.log(`Scanned ${scannedCount} source items.`);
+    console.log(`Found ${candidates.length} possible opportunities.`);
+    console.log(`Kept ${activeCandidates.length} opportunities with active/no deadline.`);
+    console.log(JSON.stringify(activeCandidates, null, 2));
+
+    if (saveToSupabase) {
+      const expiredCount = await callRpc("expire_past_opportunity_candidates");
+      const rows = toCandidateRows(activeCandidates);
+      ingestion = await callRpc("ingest_opportunity_candidates", {
+        candidate_rows: rows,
+      });
+      const synchronization = await callRpc("sync_approved_opportunity_candidates");
+      autoPublication = await callRpc("auto_publish_opportunity_candidates");
+
+      if (expiredCount > 0) {
+        console.log(
+          `Marked ${expiredCount} past candidate${expiredCount === 1 ? "" : "s"} as expired.`
+        );
+      }
+
+      console.log(
+        `Candidate sync processed ${ingestion.processed} rows: ` +
+          `${ingestion.inserted} inserted, ${ingestion.refreshed} refreshed, ` +
+          `${ingestion.changed} changed.`
+      );
+      console.log(
+        `Published ${autoPublication.published} automatically; ` +
+          `synchronized ${synchronization.synced} approved opportunities.`
+      );
+
+      await finishCrawlerRunSafely(
+        crawlerRunId,
+        "completed",
+        buildRunSummary({
+          scannedCount,
+          candidateCount: candidates.length,
+          activeCount: activeCandidates.length,
+          ingestion,
+          autoPublication,
+          sourceResults,
+        })
+      );
+    }
+  } catch (error) {
+    await finishCrawlerRunSafely(
+      crawlerRunId,
+      "failed",
+      buildRunSummary({
+        scannedCount,
+        candidateCount: candidates.length,
+        activeCount: activeCandidateCount,
+        ingestion,
+        autoPublication,
+        sourceResults,
+      }),
+      error.message
+    );
+    throw error;
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

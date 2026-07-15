@@ -50,6 +50,7 @@ create table public.opportunities (
   source_published_at timestamptz,
   last_seen_at timestamptz not null default now(),
   content_hash text,
+  dedupe_key text,
   -- 0-100 completeness score copied from the approved crawler candidate.
   confidence_score integer not null default 0 check (
     confidence_score between 0 and 100
@@ -58,9 +59,15 @@ create table public.opportunities (
 
   year_min integer check (year_min between 1 and 4),
   year_max integer check (year_max between 1 and 4),
+  year_eligibility_type text not null default 'unknown' check (
+    year_eligibility_type in ('all', 'specific', 'inferred', 'unknown')
+  ),
 
-  -- lowercase slugs; empty array = open to all majors
+  -- Lowercase slugs. Use major_eligibility_type to interpret an empty array.
   eligible_majors text[] default '{}',
+  major_eligibility_type text not null default 'unknown' check (
+    major_eligibility_type in ('all', 'specific', 'inferred', 'unknown')
+  ),
 
   delivery_mode text not null default 'unspecified' check (
     delivery_mode in ('online', 'hybrid', 'in_person', 'unspecified')
@@ -74,6 +81,7 @@ create table public.opportunities (
   deadline_source_text text,
 
   created_at timestamptz default now(),
+  updated_at timestamptz default now(),
 
   constraint opportunities_year_range_valid check (year_min <= year_max)
 );
@@ -108,6 +116,10 @@ create table public.opportunity_candidates (
     confidence_score between 0 and 100
   ),
   review_reasons text[] not null default '{}',
+  dedupe_key text,
+  extraction_evidence jsonb not null default '{}'::jsonb,
+  auto_publish_eligible boolean not null default false,
+  auto_publish_reasons text[] not null default '{}',
   status text not null default 'pending' check (
     status in ('pending', 'approved', 'rejected', 'expired')
   ),
@@ -115,9 +127,55 @@ create table public.opportunity_candidates (
   -- Stores the parsed opportunity fields before an admin/user approves it.
   extracted_opportunity jsonb not null,
 
+  first_seen_at timestamptz not null default now(),
+  last_changed_at timestamptz not null default now(),
+  change_count integer not null default 0,
+  opportunity_id uuid references public.opportunities(id) on delete set null,
   created_at timestamptz default now(),
 
   unique (source_type, source_message_id)
+);
+
+create table public.opportunity_sources (
+  id uuid primary key default gen_random_uuid(),
+  opportunity_id uuid not null references public.opportunities(id) on delete cascade,
+  candidate_id uuid references public.opportunity_candidates(id) on delete set null,
+  source_type text not null,
+  source_message_id text not null,
+  source_url text,
+  application_url text,
+  content_hash text,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+
+  unique (source_type, source_message_id)
+);
+
+create table public.opportunity_candidate_versions (
+  id bigint generated always as identity primary key,
+  candidate_id uuid not null references public.opportunity_candidates(id) on delete cascade,
+  content_hash text,
+  extracted_opportunity jsonb not null,
+  recorded_at timestamptz not null default now()
+);
+
+create table public.crawler_runs (
+  id uuid primary key default gen_random_uuid(),
+  run_mode text not null,
+  status text not null default 'running' check (
+    status in ('running', 'completed', 'failed')
+  ),
+  scanned_count integer not null default 0,
+  candidate_count integer not null default 0,
+  active_count integer not null default 0,
+  inserted_count integer not null default 0,
+  refreshed_count integer not null default 0,
+  changed_count integer not null default 0,
+  auto_published_count integer not null default 0,
+  source_results jsonb not null default '[]'::jsonb,
+  error_message text,
+  started_at timestamptz not null default now(),
+  finished_at timestamptz
 );
 
 alter table public.majors enable row level security;
@@ -125,6 +183,9 @@ alter table public.profiles enable row level security;
 alter table public.opportunities enable row level security;
 alter table public.saved_opportunities enable row level security;
 alter table public.opportunity_candidates enable row level security;
+alter table public.opportunity_sources enable row level security;
+alter table public.opportunity_candidate_versions enable row level security;
+alter table public.crawler_runs enable row level security;
 
 create policy "Anyone can view majors"
 on public.majors
@@ -429,6 +490,10 @@ on public.opportunities(last_seen_at);
 create index opportunities_content_hash_idx
 on public.opportunities(content_hash);
 
+create unique index opportunities_dedupe_key_uidx
+on public.opportunities(dedupe_key)
+where dedupe_key is not null;
+
 create index opportunities_year_min_idx
 on public.opportunities(year_min);
 
@@ -458,3 +523,18 @@ on public.opportunity_candidates(last_seen_at);
 
 create index opportunity_candidates_content_hash_idx
 on public.opportunity_candidates(content_hash);
+
+create index opportunity_candidates_dedupe_key_idx
+on public.opportunity_candidates(dedupe_key);
+
+create index opportunity_candidates_auto_publish_idx
+on public.opportunity_candidates(auto_publish_eligible, status);
+
+create index opportunity_sources_opportunity_id_idx
+on public.opportunity_sources(opportunity_id);
+
+create index opportunity_candidate_versions_candidate_id_idx
+on public.opportunity_candidate_versions(candidate_id, recorded_at desc);
+
+create index crawler_runs_started_at_idx
+on public.crawler_runs(started_at desc);

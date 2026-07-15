@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+  buildOpportunityDedupeKey,
+  getAutomaticPublicationDecision,
+} from "./opportunityPolicy.js";
 
 const CATEGORY_RULES = [
   {
@@ -843,6 +847,16 @@ const CURRENT_APPLICATION_SIGNALS = [
   "submit your application",
 ];
 
+const CLOSED_APPLICATION_SIGNALS = [
+  "application period has ended",
+  "applications are closed",
+  "applications closed",
+  "deadline has passed",
+  "no longer accepting applications",
+  "registration has closed",
+  "registration is closed",
+];
+
 const HISTORICAL_PAGE_SIGNALS = [
   "award ceremony",
   "awarded",
@@ -878,6 +892,10 @@ function findFirstSignal(text, signals) {
 
 function hasCurrentApplicationSignal(text) {
   return Boolean(findFirstSignal(text.toLowerCase(), CURRENT_APPLICATION_SIGNALS));
+}
+
+function hasClosedApplicationSignal(text) {
+  return Boolean(findFirstSignal(text.toLowerCase(), CLOSED_APPLICATION_SIGNALS));
 }
 
 function containsPastYear(text) {
@@ -1042,11 +1060,17 @@ function detectCategory(text, fallbackCategory = "other", priorityText = "") {
   return fallbackCategory;
 }
 
+function hasAllMajorEligibility(text) {
+  return /all majors|all disciplines|all faculties|open to all(?: nus)? students|all nus students/i.test(
+    text
+  );
+}
+
 function detectEligibleMajors(text, { requireExplicitEligibility = false } = {}) {
   const lowerText = text.toLowerCase();
 
   if (requireExplicitEligibility) {
-    if (/all majors|all disciplines|all faculties|open to all students/i.test(text)) {
+    if (hasAllMajorEligibility(text)) {
       return [];
     }
 
@@ -1070,34 +1094,55 @@ function detectEligibleMajors(text, { requireExplicitEligibility = false } = {})
   return [...majors];
 }
 
-function detectYearRange(text, { unknownWhenUnstated = false } = {}) {
+function detectMajorEligibility(text, options = {}) {
+  if (hasAllMajorEligibility(text)) {
+    return { type: "all", majors: [] };
+  }
+
+  const majors = detectEligibleMajors(text, options);
+
+  if (majors.length) {
+    return {
+      type: options.requireExplicitEligibility ? "specific" : "inferred",
+      majors,
+    };
+  }
+
+  return { type: "unknown", majors: [] };
+}
+
+function detectYearRange(text, { unknownWhenUnstated = true } = {}) {
   const lowerText = text.toLowerCase();
 
+  if (/all years?|years?\s*1\s*(?:-|to|through)\s*4/.test(lowerText)) {
+    return { year_min: 1, year_max: 4, year_eligibility_type: "all" };
+  }
+
   if (/year\s*1\s*(?:-|to|and|&)\s*2/.test(lowerText)) {
-    return { year_min: 1, year_max: 2 };
+    return { year_min: 1, year_max: 2, year_eligibility_type: "specific" };
   }
 
   if (/year\s*2\s*(?:-|to|and|&)\s*3/.test(lowerText)) {
-    return { year_min: 2, year_max: 3 };
+    return { year_min: 2, year_max: 3, year_eligibility_type: "specific" };
   }
 
   if (/year\s*3\s*(?:-|to|and|&)\s*4/.test(lowerText)) {
-    return { year_min: 3, year_max: 4 };
+    return { year_min: 3, year_max: 4, year_eligibility_type: "specific" };
   }
 
   const singleYearMatch = lowerText.match(/year\s*([1-4])/);
   if (singleYearMatch) {
     const year = Number(singleYearMatch[1]);
-    return { year_min: year, year_max: year };
+    return { year_min: year, year_max: year, year_eligibility_type: "specific" };
   }
 
   if (lowerText.includes("final year")) {
-    return { year_min: 4, year_max: 4 };
+    return { year_min: 4, year_max: 4, year_eligibility_type: "specific" };
   }
 
   return unknownWhenUnstated
-    ? { year_min: null, year_max: null }
-    : { year_min: 1, year_max: 4 };
+    ? { year_min: null, year_max: null, year_eligibility_type: "unknown" }
+    : { year_min: 1, year_max: 4, year_eligibility_type: "inferred" };
 }
 
 function detectDeliveryMode(text) {
@@ -1444,6 +1489,7 @@ function buildReviewReasons({
   deadline,
   sourcePublishedAt,
   yearRequirementsStated,
+  majorEligibilityType,
 }) {
   const reasons = [];
 
@@ -1456,6 +1502,9 @@ function buildReviewReasons({
   if (!sourcePublishedAt) reasons.push("missing_source_published_at");
   if (!yearRequirementsStated) {
     reasons.push("year_requirements_not_stated");
+  }
+  if (majorEligibilityType === "unknown") {
+    reasons.push("major_requirements_not_stated");
   }
 
   return reasons;
@@ -1642,11 +1691,13 @@ export function parseTextToOpportunityCandidate({
   sourcePublishedAt = null,
   lastSeenAt = null,
   requireExplicitMajorEligibility = false,
-  unknownYearWhenUnstated = false,
+  unknownYearWhenUnstated = true,
 }) {
   const text = normalizeWhitespace(
     [title, descriptionText, fullText].filter(Boolean).join(" ")
   );
+
+  if (hasClosedApplicationSignal(text)) return null;
 
   if (
     sourceType === "public_web" &&
@@ -1672,12 +1723,20 @@ export function parseTextToOpportunityCandidate({
   const category = detectCategory(text, defaultCategory, title);
   const deliveryMode = deliveryModeOverride || detectDeliveryMode(text);
   const yearRange = detectYearRange(text, { unknownWhenUnstated: unknownYearWhenUnstated });
+  const majorEligibility = detectMajorEligibility(text, {
+    requireExplicitEligibility: requireExplicitMajorEligibility,
+  });
   const deadlineDetails = extractDeadlineDetails(text);
   const resolvedTitle = cleanTitle(title);
   const resolvedOrganisation = organisationOverride || organisation;
   const resolvedSourceUrl = sourceUrl || extractFirstUrl(text);
   const applicationUrl = applicationUrlOverride || extractApplicationUrl(text);
   const deadline = deadlineOverride ?? deadlineDetails.deadline;
+
+  if (sourceType === "public_web" && !applicationUrl && !deadline) {
+    return null;
+  }
+
   const eligibility = eligibilityOverride || eligibilityAssessment.reason;
   const normalizedPublishedAt = normalizeIsoTimestamp(sourcePublishedAt);
   const normalizedLastSeenAt = normalizeIsoTimestamp(lastSeenAt) || new Date().toISOString();
@@ -1704,9 +1763,48 @@ export function parseTextToOpportunityCandidate({
     deadline,
     sourcePublishedAt: normalizedPublishedAt,
     yearRequirementsStated,
+    majorEligibilityType: majorEligibility.type,
   });
 
-  return {
+  const opportunity = {
+    school_slug: schoolSlug,
+    source_priority: sourcePriority,
+    title: resolvedTitle,
+    description: descriptionOverride || buildDescription(descriptionText || fullText || text),
+    category,
+    organisation: resolvedOrganisation,
+    source_url: resolvedSourceUrl,
+    application_url: applicationUrl,
+    source_published_at: normalizedPublishedAt,
+    last_seen_at: normalizedLastSeenAt,
+    content_hash: contentHash,
+    confidence_score: confidenceScore,
+    eligibility,
+    ...yearRange,
+    eligible_majors: majorEligibility.majors,
+    major_eligibility_type: majorEligibility.type,
+    delivery_mode: deliveryMode,
+    location: locationOverride || detectLocation(text, deliveryMode),
+    deadline,
+    deadline_has_time: deadlineHasTimeOverride ?? deadlineDetails.deadline_has_time,
+    deadline_source_timezone:
+      deadlineSourceTimezoneOverride ?? deadlineDetails.deadline_source_timezone,
+    deadline_source_text: deadlineSourceTextOverride ?? deadlineDetails.deadline_source_text,
+  };
+  const dedupeKey = buildOpportunityDedupeKey(opportunity);
+  opportunity.dedupe_key = dedupeKey;
+
+  const extractionEvidence = {
+    application_url: applicationUrl,
+    category,
+    deadline: opportunity.deadline_source_text,
+    eligibility: eligibilityAssessment.reason,
+    major_eligibility_type: majorEligibility.type,
+    organisation: resolvedOrganisation,
+    source_url: resolvedSourceUrl,
+    year_eligibility_type: yearRange.year_eligibility_type,
+  };
+  const candidate = {
     school_slug: schoolSlug,
     source_type: sourceType,
     source_message_id: sourceId || sourceUrl || null,
@@ -1722,34 +1820,17 @@ export function parseTextToOpportunityCandidate({
     candidate_score: candidateScore,
     confidence_score: confidenceScore,
     review_reasons: reviewReasons,
+    dedupe_key: dedupeKey,
+    extraction_evidence: extractionEvidence,
     status: "pending",
-    opportunity: {
-      school_slug: schoolSlug,
-      source_priority: sourcePriority,
-      title: resolvedTitle,
-      description: descriptionOverride || buildDescription(descriptionText || fullText || text),
-      category,
-      organisation: resolvedOrganisation,
-      source_url: resolvedSourceUrl,
-      application_url: applicationUrl,
-      source_published_at: normalizedPublishedAt,
-      last_seen_at: normalizedLastSeenAt,
-      content_hash: contentHash,
-      confidence_score: confidenceScore,
-      eligibility,
-      ...yearRange,
-      eligible_majors: detectEligibleMajors(text, {
-        requireExplicitEligibility: requireExplicitMajorEligibility,
-      }),
-      delivery_mode: deliveryMode,
-      location: locationOverride || detectLocation(text, deliveryMode),
-      deadline,
-      deadline_has_time: deadlineHasTimeOverride ?? deadlineDetails.deadline_has_time,
-      deadline_source_timezone:
-        deadlineSourceTimezoneOverride ?? deadlineDetails.deadline_source_timezone,
-      deadline_source_text: deadlineSourceTextOverride ?? deadlineDetails.deadline_source_text,
-    },
+    opportunity,
   };
+  const publicationDecision = getAutomaticPublicationDecision(candidate);
+
+  candidate.auto_publish_eligible = publicationDecision.eligible;
+  candidate.auto_publish_reasons = publicationDecision.reasons;
+
+  return candidate;
 }
 
 export function parseEmailToOpportunityCandidate(email, options = {}) {
@@ -1761,7 +1842,7 @@ export function parseEmailToOpportunityCandidate(email, options = {}) {
 
   return parseTextToOpportunityCandidate({
     sourceType: "outlook_email",
-    sourceId: email.id || email.internetMessageId || null,
+    sourceId: email.internetMessageId || email.id || null,
     sourceUrl: email.webLink || extractFirstUrl(text),
     rawTitle: email.subject || "",
     rawSender: email.from?.emailAddress?.address || "",
@@ -1821,7 +1902,7 @@ export function parseWebDocumentToOpportunityCandidate(document) {
     applicationUrlOverride: document.applicationUrl,
     requireExplicitMajorEligibility:
       detailOverrides.requireExplicitMajorEligibility || false,
-    unknownYearWhenUnstated: detailOverrides.unknownYearWhenUnstated || false,
+    unknownYearWhenUnstated: detailOverrides.unknownYearWhenUnstated ?? true,
   });
 }
 

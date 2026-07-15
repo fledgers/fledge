@@ -1,4 +1,10 @@
 import { PDFParse } from "pdf-parse";
+import { canonicalizeUrl } from "./urlUtils.js";
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const DEFAULT_MAX_RETRIES = 2;
+const DEFAULT_REQUEST_DELAY_MS = 150;
+const MAX_PDF_BYTES = 15 * 1024 * 1024;
 
 const PUBLIC_WEB_LINK_KEYWORDS = [
   "apply",
@@ -27,6 +33,8 @@ const PUBLIC_WEB_LINK_KEYWORDS = [
   "research attachment",
   "research attachments",
   "research internship",
+  "research programme",
+  "research program",
   "scholarship",
   "scholarships",
   "sep",
@@ -158,9 +166,9 @@ function extractApplicationUrlFromHtml(html, baseUrl) {
 }
 
 function normalizeUrl(url) {
-  const parsed = new URL(url);
-  parsed.hash = "";
-  return parsed.toString();
+  const normalized = canonicalizeUrl(url);
+  if (!normalized) throw new Error(`Invalid crawler URL: ${url}`);
+  return normalized;
 }
 
 function isAllowedHost(url, allowedHosts = []) {
@@ -225,15 +233,53 @@ function isLikelyOpportunityLink(link, { allowPdf = false } = {}) {
   return PUBLIC_WEB_LINK_KEYWORDS.some((keyword) => haystack.includes(keyword));
 }
 
-async function fetchHtml(url) {
-  const response = await fetch(url, {
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isRetryableStatus(status) {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+async function fetchWithRetry(url, options, source = {}) {
+  const maxRetries = source.maxRetries ?? DEFAULT_MAX_RETRIES;
+  const timeoutMs = source.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  let lastError;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+
+      if (!isRetryableStatus(response.status) || attempt === maxRetries) {
+        return response;
+      }
+
+      lastError = new Error(`Temporary HTTP ${response.status} response from ${url}`);
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxRetries) throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    await sleep((source.retryDelayMs ?? 250) * 2 ** attempt);
+  }
+
+  throw lastError;
+}
+
+async function fetchHtml(url, source) {
+  const response = await fetchWithRetry(url, {
     headers: {
       "User-Agent":
         "Mozilla/5.0 (compatible; FledgeCrawler/0.1; +https://fledge.example)",
       Accept: "text/html,application/xhtml+xml",
       "Accept-Language": "en-SG,en;q=0.9",
     },
-  });
+  }, source);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch ${url}: ${response.status}`);
@@ -249,21 +295,29 @@ async function fetchHtml(url) {
   return html;
 }
 
-async function fetchPdfText(url) {
-  const response = await fetch(url, {
+async function fetchPdfText(url, source) {
+  const response = await fetchWithRetry(url, {
     headers: {
       "User-Agent":
         "Mozilla/5.0 (compatible; FledgeCrawler/0.1; +https://fledge.example)",
       Accept: "application/pdf",
       "Accept-Language": "en-SG,en;q=0.9",
     },
-  });
+  }, source);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch ${url}: ${response.status}`);
   }
 
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (contentLength > MAX_PDF_BYTES) {
+    throw new Error(`PDF is larger than ${MAX_PDF_BYTES} bytes: ${url}`);
+  }
+
   const data = new Uint8Array(await response.arrayBuffer());
+  if (data.byteLength > MAX_PDF_BYTES) {
+    throw new Error(`PDF is larger than ${MAX_PDF_BYTES} bytes: ${url}`);
+  }
   const firstBytes = new TextDecoder().decode(data.slice(0, 5));
 
   if (firstBytes !== "%PDF-") {
@@ -342,33 +396,60 @@ function acceptsLinkedDocumentType(source, url) {
   return allowedTypes.includes(isPdfUrl(url) ? "pdf" : "html");
 }
 
+function findRelevantLinks(source, html, baseUrl, allowPdf) {
+  return extractLinks(html, baseUrl, source.allowedHosts, { allowPdf })
+    .filter((link) => acceptsLinkedDocumentType(source, link.url))
+    .filter((link) => isLikelyOpportunityLink(link, { allowPdf }));
+}
+
 export async function fetchPublicWebSource(source) {
   const rootUrl = normalizeUrl(source.url);
-  const rootHtml = await fetchHtml(rootUrl);
+  const rootHtml = await fetchHtml(rootUrl, source);
   const seenUrls = new Set([rootUrl]);
   const documents = source.createRootDocument === false
     ? []
     : [createWebDocument(source, rootUrl, rootHtml, source.name)];
   const allowPdf = source.linkedDocumentTypes?.includes("pdf") || false;
-
-  const relevantLinks = extractLinks(rootHtml, rootUrl, source.allowedHosts, { allowPdf })
-    .filter((link) => acceptsLinkedDocumentType(source, link.url))
-    .filter((link) => isLikelyOpportunityLink(link, { allowPdf }))
+  const maxDepth = source.maxDepth ?? 1;
+  const maxLinkedPages = source.maxLinkedPages ?? 4;
+  const queuedUrls = new Set();
+  const queue = findRelevantLinks(source, rootHtml, rootUrl, allowPdf)
     .filter((link) => !seenUrls.has(link.url))
-    .slice(0, source.maxLinkedPages ?? 4);
+    .map((link) => ({ ...link, depth: 1 }));
 
-  for (const link of relevantLinks) {
+  for (const link of queue) queuedUrls.add(link.url);
+
+  while (queue.length && seenUrls.size - 1 < maxLinkedPages) {
+    const link = queue.shift();
+
     try {
       if (seenUrls.has(link.url)) continue;
 
       seenUrls.add(link.url);
+      await sleep(source.requestDelayMs ?? DEFAULT_REQUEST_DELAY_MS);
 
       if (isPdfUrl(link.url)) {
-        const pdfText = await fetchPdfText(link.url);
+        const pdfText = await fetchPdfText(link.url, source);
         documents.push(createPdfDocument(source, link.url, pdfText, link.text));
       } else {
-        const linkedHtml = await fetchHtml(link.url);
+        const linkedHtml = await fetchHtml(link.url, source);
         documents.push(createWebDocument(source, link.url, linkedHtml, link.text));
+
+        if (link.depth < maxDepth) {
+          const nestedLinks = findRelevantLinks(
+            source,
+            linkedHtml,
+            link.url,
+            allowPdf
+          );
+
+          for (const nestedLink of nestedLinks) {
+            if (seenUrls.has(nestedLink.url) || queuedUrls.has(nestedLink.url)) continue;
+
+            queuedUrls.add(nestedLink.url);
+            queue.push({ ...nestedLink, depth: link.depth + 1 });
+          }
+        }
       }
     } catch (error) {
       console.warn(`Skipping linked page: ${error.message}`);
@@ -378,7 +459,7 @@ export async function fetchPublicWebSource(source) {
   return documents;
 }
 
-export async function fetchPublicWebDocuments(sources) {
+export async function fetchPublicWebDocuments(sources, { onSourceResult } = {}) {
   const documents = [];
 
   const crawlOrderedSources = [...sources].sort(
@@ -391,8 +472,21 @@ export async function fetchPublicWebDocuments(sources) {
     try {
       const sourceDocuments = await fetchPublicWebSource(source);
       documents.push(...sourceDocuments);
+      onSourceResult?.({
+        source_id: source.id,
+        source_type: source.type,
+        status: "completed",
+        document_count: sourceDocuments.length,
+      });
     } catch (error) {
       console.warn(`Skipping source ${source.id}: ${error.message}`);
+      onSourceResult?.({
+        source_id: source.id,
+        source_type: source.type,
+        status: "failed",
+        document_count: 0,
+        error: error.message,
+      });
     }
   }
 

@@ -96,6 +96,7 @@ const crawlerSourceConfig = [
     sourceTrustBoost: 3,
     targetAudience: "nus_students",
     trustedForNusStudents: true,
+    maxDepth: 2,
     maxLinkedPages: 6,
   },
   {
@@ -222,6 +223,7 @@ const crawlerSourceConfig = [
     targetAudience: "nus_students",
     trustedForNusStudents: true,
     minScore: 3,
+    maxDepth: 2,
     maxLinkedPages: 4,
   },
   {
@@ -237,6 +239,7 @@ const crawlerSourceConfig = [
     targetAudience: "nus_students",
     trustedForNusStudents: true,
     minScore: 3,
+    maxDepth: 2,
     maxLinkedPages: 5,
   },
   {
@@ -252,6 +255,7 @@ const crawlerSourceConfig = [
     targetAudience: "nus_students",
     trustedForNusStudents: true,
     minScore: 3,
+    maxDepth: 2,
     maxLinkedPages: 5,
   },
   {
