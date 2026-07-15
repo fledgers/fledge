@@ -6,6 +6,18 @@ function getSupabaseUrl(tableName) {
 }
 
 function getSupabaseHeaders({ prefer } = {}) {
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+
+  // Supabase's current sb_secret keys must not be sent as Bearer tokens.
+  // The legacy service_role key remains supported while existing projects migrate.
+  if (secretKey) {
+    return {
+      apikey: secretKey,
+      "Content-Type": "application/json",
+      ...(prefer ? { Prefer: prefer } : {}),
+    };
+  }
+
   const serviceRoleKey = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
 
   return {

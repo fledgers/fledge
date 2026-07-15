@@ -47,6 +47,10 @@ test("parses an NUS partner winter-programme PDF as a specific opportunity", () 
   assert.equal(candidate.opportunity.year_max, null);
   assert.deepEqual(candidate.opportunity.eligible_majors, []);
   assert.match(candidate.opportunity.eligibility, /generic eligibility requirements/i);
+  assert.equal(candidate.content_hash.length, 64);
+  assert.equal(candidate.opportunity.content_hash, candidate.content_hash);
+  assert.ok(candidate.review_reasons.includes("missing_application_url"));
+  assert.ok(candidate.review_reasons.includes("missing_source_published_at"));
 });
 
 test("converts an explicitly zoned deadline into a UTC instant", () => {
@@ -58,13 +62,14 @@ test("converts an explicitly zoned deadline into a UTC instant", () => {
     url: "https://example.edu/programme",
     title: "International Design Competition",
     summary: "",
-    text: "Application deadline: October 18, 2026 at 11:59 PM EDT. Open to all students.",
+    text: "Application deadline: October 18, 2026 at 11:59 PM EDT. Open to all years and all NUS students. Apply here: https://apply.example.edu/design.",
     defaultCategory: "competition",
     minScore: 3,
     sourcePriority: 3,
     sourceTrustBoost: 0,
     requiresNusStudentEligibility: true,
     trustedForNusStudents: true,
+    publishedAt: "2026-07-01T09:00:00-04:00",
     fetchedAt: "2026-07-14T00:00:00.000Z",
   });
 
@@ -72,6 +77,11 @@ test("converts an explicitly zoned deadline into a UTC instant", () => {
   assert.equal(candidate.opportunity.deadline, "2026-10-19T03:59:00.000Z");
   assert.equal(candidate.opportunity.deadline_has_time, true);
   assert.equal(candidate.opportunity.deadline_source_timezone, "EDT");
+  assert.equal(candidate.application_url, "https://apply.example.edu/design");
+  assert.equal(candidate.source_published_at, "2026-07-01T13:00:00.000Z");
+  assert.equal(candidate.last_seen_at, "2026-07-14T00:00:00.000Z");
+  assert.equal(candidate.confidence_score, 100);
+  assert.deepEqual(candidate.review_reasons, []);
 });
 
 test("does not assume Singapore time when the source omits a timezone", () => {

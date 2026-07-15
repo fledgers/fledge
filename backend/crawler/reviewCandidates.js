@@ -23,22 +23,30 @@ export function buildCandidateSummary(candidate) {
   return {
     id: candidate.id,
     score: candidate.candidate_score,
+    confidence: candidate.confidence_score ?? opportunity.confidence_score ?? 0,
     title: opportunity.title || candidate.raw_subject || "Untitled opportunity",
     category: opportunity.category || "other",
     organisation: opportunity.organisation || "Not stated",
     deadline: opportunity.deadline_source_text || opportunity.deadline || "Not stated",
+    application: candidate.application_url || opportunity.application_url || "Not stated",
+    reviewReasons: candidate.review_reasons?.join(", ") || "None",
     source: candidate.source_url || "Not stated",
   };
 }
 
 async function listPendingCandidates() {
+  const expiredCount = await callRpc("expire_past_opportunity_candidates");
   const candidates = await selectRows("opportunity_candidates", {
     select:
-      "id,candidate_score,source_url,raw_subject,extracted_opportunity,created_at",
+      "id,candidate_score,confidence_score,review_reasons,source_url,application_url,raw_subject,extracted_opportunity,created_at",
     status: "eq.pending",
     order: "candidate_score.desc,created_at.desc",
     limit: "50",
   });
+
+  if (expiredCount > 0) {
+    console.log(`Marked ${expiredCount} past candidate${expiredCount === 1 ? "" : "s"} as expired.`);
+  }
 
   if (!candidates.length) {
     console.log("No pending opportunity candidates.");

@@ -15,7 +15,7 @@ import {
   parseWebDocumentsToOpportunityCandidates,
   scoreOpportunityText,
 } from "./emailOpportunityParser.js";
-import { insertRows } from "./supabaseRest.js";
+import { callRpc, insertRows } from "./supabaseRest.js";
 
 loadLocalEnv();
 
@@ -144,11 +144,17 @@ function toCandidateRows(candidates) {
     source_type: candidate.source_type,
     source_message_id: candidate.source_message_id,
     source_url: candidate.source_url,
+    application_url: candidate.application_url,
     raw_subject: candidate.raw_subject,
     raw_sender: candidate.raw_sender,
     received_at: candidate.received_at,
+    source_published_at: candidate.source_published_at,
+    last_seen_at: candidate.last_seen_at,
+    content_hash: candidate.content_hash,
     source_priority: candidate.source_priority,
     candidate_score: candidate.candidate_score,
+    confidence_score: candidate.confidence_score,
+    review_reasons: candidate.review_reasons,
     status: candidate.status,
     extracted_opportunity: candidate.opportunity,
   }));
@@ -219,8 +225,14 @@ async function main() {
   console.log(JSON.stringify(activeCandidates, null, 2));
 
   if (saveToSupabase) {
+    const expiredCount = await callRpc("expire_past_opportunity_candidates");
     const rows = toCandidateRows(activeCandidates);
     const savedRows = await insertRows("opportunity_candidates", rows);
+
+    if (expiredCount > 0) {
+      console.log(`Marked ${expiredCount} past candidate${expiredCount === 1 ? "" : "s"} as expired.`);
+    }
+
     console.log(`Saved ${savedRows.length} candidates to Supabase.`);
   }
 }

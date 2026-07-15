@@ -46,6 +46,14 @@ create table public.opportunities (
 
   organisation text,
   source_url text,
+  application_url text,
+  source_published_at timestamptz,
+  last_seen_at timestamptz not null default now(),
+  content_hash text,
+  -- 0-100 completeness score copied from the approved crawler candidate.
+  confidence_score integer not null default 0 check (
+    confidence_score between 0 and 100
+  ),
   eligibility text,
 
   year_min integer check (year_min between 1 and 4),
@@ -85,13 +93,23 @@ create table public.opportunity_candidates (
   source_type text not null,
   source_message_id text,
   source_url text,
+  application_url text,
   raw_subject text,
   raw_sender text,
   received_at timestamptz,
+  source_published_at timestamptz,
+  last_seen_at timestamptz not null default now(),
+  content_hash text,
   source_priority integer not null default 99,
+  -- Keyword relevance decides whether text is a candidate at all.
   candidate_score integer not null default 0,
+  -- Field completeness is separate from keyword relevance.
+  confidence_score integer not null default 0 check (
+    confidence_score between 0 and 100
+  ),
+  review_reasons text[] not null default '{}',
   status text not null default 'pending' check (
-    status in ('pending', 'approved', 'rejected')
+    status in ('pending', 'approved', 'rejected', 'expired')
   ),
 
   -- Stores the parsed opportunity fields before an admin/user approves it.
@@ -405,6 +423,12 @@ on public.opportunities(delivery_mode);
 create index opportunities_deadline_idx
 on public.opportunities(deadline);
 
+create index opportunities_last_seen_at_idx
+on public.opportunities(last_seen_at);
+
+create index opportunities_content_hash_idx
+on public.opportunities(content_hash);
+
 create index opportunities_year_min_idx
 on public.opportunities(year_min);
 
@@ -425,3 +449,12 @@ on public.opportunity_candidates(source_priority);
 
 create index opportunity_candidates_score_idx
 on public.opportunity_candidates(candidate_score);
+
+create index opportunity_candidates_confidence_score_idx
+on public.opportunity_candidates(confidence_score);
+
+create index opportunity_candidates_last_seen_at_idx
+on public.opportunity_candidates(last_seen_at);
+
+create index opportunity_candidates_content_hash_idx
+on public.opportunity_candidates(content_hash);

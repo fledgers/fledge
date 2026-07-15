@@ -116,6 +116,47 @@ function extractMetaDescription(html) {
   return match ? normalizeWhitespace(decodeHtmlEntities(match[1])) : "";
 }
 
+function extractPublishedAt(html) {
+  const patterns = [
+    /<meta[^>]+(?:property|name)=["'](?:article:published_time|datePublished|publish_date|publication_date)["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:article:published_time|datePublished|publish_date|publication_date)["'][^>]*>/i,
+    /["']datePublished["']\s*:\s*["']([^"']+)["']/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (!match) continue;
+
+    const date = new Date(decodeHtmlEntities(match[1]));
+    if (!Number.isNaN(date.valueOf())) return date.toISOString();
+  }
+
+  return null;
+}
+
+function extractApplicationUrlFromHtml(html, baseUrl) {
+  const anchorPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+
+  while ((match = anchorPattern.exec(html)) !== null) {
+    const label = stripHtml(match[2]).toLowerCase();
+    const href = decodeHtmlEntities(match[1]);
+
+    if (!/\b(?:apply|application|register|registration)\b/.test(`${label} ${href}`)) {
+      continue;
+    }
+
+    try {
+      const url = new URL(href, baseUrl);
+      if (["http:", "https:"].includes(url.protocol)) return normalizeUrl(url.toString());
+    } catch {
+      // Ignore malformed application links and continue looking for a usable one.
+    }
+  }
+
+  return null;
+}
+
 function normalizeUrl(url) {
   const parsed = new URL(url);
   parsed.hash = "";
@@ -250,6 +291,8 @@ function createWebDocument(source, url, html, fallbackTitle) {
     sourceId: source.id,
     sourceName: source.name,
     url: normalizeUrl(url),
+    applicationUrl: extractApplicationUrlFromHtml(html, url),
+    publishedAt: extractPublishedAt(html),
     title,
     summary,
     text,
@@ -273,6 +316,8 @@ function createPdfDocument(source, url, text, fallbackTitle) {
     sourceId: source.id,
     sourceName: source.name,
     url: normalizeUrl(url),
+    applicationUrl: null,
+    publishedAt: null,
     title,
     summary: text.slice(0, 700),
     text,

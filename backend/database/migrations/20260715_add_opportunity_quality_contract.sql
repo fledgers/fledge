@@ -1,3 +1,47 @@
+alter table public.opportunities
+add column if not exists application_url text,
+add column if not exists source_published_at timestamptz,
+add column if not exists last_seen_at timestamptz not null default now(),
+add column if not exists content_hash text,
+add column if not exists confidence_score integer not null default 0;
+
+alter table public.opportunities
+drop constraint if exists opportunities_confidence_score_check;
+
+alter table public.opportunities
+add constraint opportunities_confidence_score_check
+check (confidence_score between 0 and 100);
+
+alter table public.opportunity_candidates
+add column if not exists application_url text,
+add column if not exists source_published_at timestamptz,
+add column if not exists last_seen_at timestamptz not null default now(),
+add column if not exists content_hash text,
+add column if not exists confidence_score integer not null default 0,
+add column if not exists review_reasons text[] not null default '{}';
+
+alter table public.opportunity_candidates
+drop constraint if exists opportunity_candidates_confidence_score_check;
+
+alter table public.opportunity_candidates
+add constraint opportunity_candidates_confidence_score_check
+check (confidence_score between 0 and 100);
+
+create index if not exists opportunities_last_seen_at_idx
+on public.opportunities(last_seen_at);
+
+create index if not exists opportunities_content_hash_idx
+on public.opportunities(content_hash);
+
+create index if not exists opportunity_candidates_confidence_score_idx
+on public.opportunity_candidates(confidence_score);
+
+create index if not exists opportunity_candidates_last_seen_at_idx
+on public.opportunity_candidates(last_seen_at);
+
+create index if not exists opportunity_candidates_content_hash_idx
+on public.opportunity_candidates(content_hash);
+
 create or replace function public.approve_opportunity_candidate(candidate_id uuid)
 returns uuid
 language plpgsql
@@ -97,25 +141,5 @@ begin
 end;
 $$;
 
-create or replace function public.reject_opportunity_candidate(candidate_id uuid)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  update public.opportunity_candidates
-  set status = 'rejected'
-  where id = candidate_id
-    and status = 'pending';
-
-  if not found then
-    raise exception 'Pending opportunity candidate % was not found.', candidate_id;
-  end if;
-end;
-$$;
-
 revoke all on function public.approve_opportunity_candidate(uuid) from public, anon, authenticated;
-revoke all on function public.reject_opportunity_candidate(uuid) from public, anon, authenticated;
 grant execute on function public.approve_opportunity_candidate(uuid) to service_role;
-grant execute on function public.reject_opportunity_candidate(uuid) to service_role;

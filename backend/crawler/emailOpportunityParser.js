@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const CATEGORY_RULES = [
   {
     category: "internship",
@@ -1362,7 +1364,129 @@ function calendarDateToIso({ year, month, day }) {
 
 function extractFirstUrl(text) {
   const match = text.match(/https?:\/\/[^\s)"'<>]+/i);
-  return match ? match[0] : null;
+  return match ? cleanExtractedUrl(match[0]) : null;
+}
+
+function cleanExtractedUrl(url) {
+  return url.replace(/[.,;:!?\]}]+$/, "");
+}
+
+function extractApplicationUrl(text) {
+  const match = text.match(
+    /(?:apply(?:\s+(?:here|now|online))?|application(?:\s+(?:form|link|portal|website))?|register(?:\s+(?:here|now|online))?|registration(?:\s+(?:form|link|portal|website))?)\s*(?:at|through|via|:|-)?\s*(https?:\/\/[^\s)"'<>]+)/i
+  );
+
+  return match ? cleanExtractedUrl(match[1]) : null;
+}
+
+function extractApplicationUrlFromHtml(html = "") {
+  const anchorPattern = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+
+  while ((match = anchorPattern.exec(html)) !== null) {
+    const label = stripHtml(match[2]).toLowerCase();
+    const url = cleanExtractedUrl(match[1]);
+
+    if (/\b(?:apply|application|register|registration)\b/.test(`${label} ${url}`)) {
+      return url;
+    }
+  }
+
+  return null;
+}
+
+function normalizeIsoTimestamp(value) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? null : date.toISOString();
+}
+
+function createContentHash(text) {
+  return createHash("sha256").update(normalizeWhitespace(text)).digest("hex");
+}
+
+function hasSpecificTitle(title) {
+  const normalizedTitle = cleanTitle(title).toLowerCase();
+
+  return Boolean(
+    normalizedTitle &&
+      ![
+        "application",
+        "applications open",
+        "opportunity",
+        "programme",
+        "program",
+        "untitled opportunity",
+      ].includes(normalizedTitle)
+  );
+}
+
+function hasKnownOrganisation(organisation) {
+  return Boolean(
+    organisation &&
+      !["unknown", "unknown organisation", "not stated"].includes(
+        organisation.trim().toLowerCase()
+      )
+  );
+}
+
+function hasExplicitYearRequirement(text) {
+  return /\b(?:year\s*[1-4]|final year|all years?)\b/i.test(text);
+}
+
+function buildReviewReasons({
+  title,
+  organisation,
+  category,
+  sourceUrl,
+  applicationUrl,
+  deadline,
+  sourcePublishedAt,
+  yearRequirementsStated,
+}) {
+  const reasons = [];
+
+  if (!hasSpecificTitle(title)) reasons.push("generic_title");
+  if (!hasKnownOrganisation(organisation)) reasons.push("missing_organisation");
+  if (category === "other") reasons.push("unclear_category");
+  if (!sourceUrl) reasons.push("missing_source_url");
+  if (!applicationUrl) reasons.push("missing_application_url");
+  if (!deadline) reasons.push("missing_deadline");
+  if (!sourcePublishedAt) reasons.push("missing_source_published_at");
+  if (!yearRequirementsStated) {
+    reasons.push("year_requirements_not_stated");
+  }
+
+  return reasons;
+}
+
+function calculateConfidenceScore({
+  title,
+  organisation,
+  category,
+  sourceUrl,
+  applicationUrl,
+  deadline,
+  eligibility,
+  sourcePublishedAt,
+  yearRequirementsStated,
+  contentHash,
+}) {
+  let score = 0;
+
+  if (hasSpecificTitle(title)) score += 15;
+  if (hasKnownOrganisation(organisation)) score += 10;
+  if (category !== "other") score += 10;
+  if (sourceUrl) score += 10;
+  if (applicationUrl) score += 15;
+  if (deadline) score += 15;
+  if (eligibility) score += 10;
+  if (yearRequirementsStated) score += 5;
+  if (sourcePublishedAt) score += 5;
+  if (contentHash) score += 5;
+
+  return score;
 }
 
 function inferOrganisation(email) {
@@ -1514,6 +1638,9 @@ export function parseTextToOpportunityCandidate({
   deadlineSourceTimezoneOverride,
   deadlineSourceTextOverride,
   deliveryModeOverride,
+  applicationUrlOverride,
+  sourcePublishedAt = null,
+  lastSeenAt = null,
   requireExplicitMajorEligibility = false,
   unknownYearWhenUnstated = false,
 }) {
@@ -1546,34 +1673,77 @@ export function parseTextToOpportunityCandidate({
   const deliveryMode = deliveryModeOverride || detectDeliveryMode(text);
   const yearRange = detectYearRange(text, { unknownWhenUnstated: unknownYearWhenUnstated });
   const deadlineDetails = extractDeadlineDetails(text);
+  const resolvedTitle = cleanTitle(title);
+  const resolvedOrganisation = organisationOverride || organisation;
+  const resolvedSourceUrl = sourceUrl || extractFirstUrl(text);
+  const applicationUrl = applicationUrlOverride || extractApplicationUrl(text);
+  const deadline = deadlineOverride ?? deadlineDetails.deadline;
+  const eligibility = eligibilityOverride || eligibilityAssessment.reason;
+  const normalizedPublishedAt = normalizeIsoTimestamp(sourcePublishedAt);
+  const normalizedLastSeenAt = normalizeIsoTimestamp(lastSeenAt) || new Date().toISOString();
+  const contentHash = createContentHash(text);
+  const yearRequirementsStated = hasExplicitYearRequirement(text);
+  const confidenceScore = calculateConfidenceScore({
+    title: resolvedTitle,
+    organisation: resolvedOrganisation,
+    category,
+    sourceUrl: resolvedSourceUrl,
+    applicationUrl,
+    deadline,
+    eligibility,
+    sourcePublishedAt: normalizedPublishedAt,
+    yearRequirementsStated,
+    contentHash,
+  });
+  const reviewReasons = buildReviewReasons({
+    title: resolvedTitle,
+    organisation: resolvedOrganisation,
+    category,
+    sourceUrl: resolvedSourceUrl,
+    applicationUrl,
+    deadline,
+    sourcePublishedAt: normalizedPublishedAt,
+    yearRequirementsStated,
+  });
 
   return {
     school_slug: schoolSlug,
     source_type: sourceType,
     source_message_id: sourceId || sourceUrl || null,
-    source_url: sourceUrl || extractFirstUrl(text),
+    source_url: resolvedSourceUrl,
+    application_url: applicationUrl,
     raw_subject: rawTitle,
     raw_sender: rawSender,
     received_at: receivedAt,
+    source_published_at: normalizedPublishedAt,
+    last_seen_at: normalizedLastSeenAt,
+    content_hash: contentHash,
     source_priority: sourcePriority,
     candidate_score: candidateScore,
+    confidence_score: confidenceScore,
+    review_reasons: reviewReasons,
     status: "pending",
     opportunity: {
       school_slug: schoolSlug,
       source_priority: sourcePriority,
-      title: cleanTitle(title),
+      title: resolvedTitle,
       description: descriptionOverride || buildDescription(descriptionText || fullText || text),
       category,
-      organisation: organisationOverride || organisation,
-      source_url: sourceUrl || extractFirstUrl(text),
-      eligibility: eligibilityOverride || eligibilityAssessment.reason,
+      organisation: resolvedOrganisation,
+      source_url: resolvedSourceUrl,
+      application_url: applicationUrl,
+      source_published_at: normalizedPublishedAt,
+      last_seen_at: normalizedLastSeenAt,
+      content_hash: contentHash,
+      confidence_score: confidenceScore,
+      eligibility,
       ...yearRange,
       eligible_majors: detectEligibleMajors(text, {
         requireExplicitEligibility: requireExplicitMajorEligibility,
       }),
       delivery_mode: deliveryMode,
       location: locationOverride || detectLocation(text, deliveryMode),
-      deadline: deadlineOverride ?? deadlineDetails.deadline,
+      deadline,
       deadline_has_time: deadlineHasTimeOverride ?? deadlineDetails.deadline_has_time,
       deadline_source_timezone:
         deadlineSourceTimezoneOverride ?? deadlineDetails.deadline_source_timezone,
@@ -1584,6 +1754,10 @@ export function parseTextToOpportunityCandidate({
 
 export function parseEmailToOpportunityCandidate(email, options = {}) {
   const text = getEmailText(email);
+  const htmlApplicationUrl =
+    email.body?.contentType?.toLowerCase() === "html"
+      ? extractApplicationUrlFromHtml(email.body.content)
+      : null;
 
   return parseTextToOpportunityCandidate({
     sourceType: "outlook_email",
@@ -1592,6 +1766,8 @@ export function parseEmailToOpportunityCandidate(email, options = {}) {
     rawTitle: email.subject || "",
     rawSender: email.from?.emailAddress?.address || "",
     receivedAt: email.receivedDateTime || null,
+    sourcePublishedAt: email.receivedDateTime || null,
+    lastSeenAt: new Date().toISOString(),
     title: email.subject || "Untitled opportunity",
     descriptionText: getEmailBodyText(email),
     fullText: text,
@@ -1601,6 +1777,7 @@ export function parseEmailToOpportunityCandidate(email, options = {}) {
     sourcePriority: options.sourcePriority ?? 99,
     requiresNusStudentEligibility: options.requiresNusStudentEligibility ?? true,
     trustedForNusStudents: options.trustedForNusStudents || false,
+    applicationUrlOverride: htmlApplicationUrl,
   });
 }
 
@@ -1623,6 +1800,8 @@ export function parseWebDocumentToOpportunityCandidate(document) {
     rawTitle: document.title,
     rawSender: document.sourceName,
     receivedAt: document.fetchedAt,
+    sourcePublishedAt: document.publishedAt,
+    lastSeenAt: document.fetchedAt,
     title: document.title || document.sourceName,
     descriptionText: document.summary || document.text,
     fullText: document.text,
@@ -1639,6 +1818,7 @@ export function parseWebDocumentToOpportunityCandidate(document) {
     eligibilityOverride: detailOverrides.eligibility,
     locationOverride: detailOverrides.location,
     deliveryModeOverride: detailOverrides.deliveryMode,
+    applicationUrlOverride: document.applicationUrl,
     requireExplicitMajorEligibility:
       detailOverrides.requireExplicitMajorEligibility || false,
     unknownYearWhenUnstated: detailOverrides.unknownYearWhenUnstated || false,

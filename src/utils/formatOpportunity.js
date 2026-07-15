@@ -69,6 +69,8 @@ export function formatOpportunity(row) {
     description: row.description,
     category: row.category,
     organisation: row.organisation,
+    source_url: row.source_url || null,
+    application_url: row.application_url || null,
 
     location: formatLocation(row),
     yearTag: formatYearTag(row.year_min, row.year_max),
@@ -77,6 +79,9 @@ export function formatOpportunity(row) {
     icon: getCategoryIcon(row.category),
     badge: row.eligibility ? "Requirements listed" : "Open to all",
     source_priority: row.source_priority ?? 99,
+    source_published_at: row.source_published_at || null,
+    last_seen_at: row.last_seen_at || null,
+    confidence_score: row.confidence_score ?? 0,
 
     year_min: row.year_min,
     year_max: row.year_max,
