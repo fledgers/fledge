@@ -6,6 +6,7 @@ import { useMemo } from 'react';
 import Navbar from '../components/Navbar';
 import OpportunityCard from '../components/OpportunityCard';
 import opportunities from '../data/opportunities';
+import { isOpportunityExpired } from '../utils/formatOpportunity';
 
 // Sample: which opportunities are "recommended" — later this is computed
 // by matching the user's major and year against each opportunity
@@ -14,18 +15,27 @@ const topPickIds = [1, 2]; // subset that gets the "Top Pick" badge
 
 export default function ForYou() {
   const recommended = useMemo(
-    () => opportunities.filter(o => recommendedIds.includes(o.id)),
+    () => opportunities.filter(
+      opportunity =>
+        recommendedIds.includes(opportunity.id) &&
+        !isOpportunityExpired(opportunity)
+    ),
     []
   );
 
   // Sample: saved opportunities with deadlines, sorted soonest first
   const savedWithDeadlines = useMemo(() => {
-    const saved = opportunities.filter(o => [1, 2, 4].includes(o.id) && o.deadline);
+    const saved = opportunities.filter(
+      opportunity =>
+        [1, 2, 4].includes(opportunity.id) &&
+        opportunity.deadline &&
+        !isOpportunityExpired(opportunity)
+    );
     return [...saved].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
   }, []);
 
   function daysUntil(dateStr) {
-    const diff = new Date(dateStr) - new Date('2026-06-19'); // today's date in this project
+    const diff = new Date(dateStr) - new Date();
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
   }
 

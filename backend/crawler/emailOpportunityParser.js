@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import {
   buildOpportunityDedupeKey,
   getAutomaticPublicationDecision,
+  getOpportunityVisibilityDecision,
+  scopeOpportunityDedupeKey,
 } from "./opportunityPolicy.js";
 
 const CATEGORY_RULES = [
@@ -781,12 +783,8 @@ const NUS_STUDENT_ELIGIBILITY_SIGNALS = [
   "student program",
   "students and graduates",
   "student and graduate",
-  "youth",
-  "youths",
   "young singaporeans",
   "singapore youth",
-  "youth-led",
-  "youth led",
 ];
 
 const OPEN_ELIGIBILITY_SIGNALS = [
@@ -798,6 +796,29 @@ const OPEN_ELIGIBILITY_SIGNALS = [
   "all years welcome",
   "students from all disciplines",
   "students from any discipline",
+];
+
+const GLOBAL_ELIGIBILITY_SIGNALS = [
+  "accepting applications worldwide",
+  "all nationalities are eligible",
+  "all nationalities eligible",
+  "global applications welcome",
+  "international applicants are welcome",
+  "international applicants welcome",
+  "international students are welcome",
+  "international students welcome",
+  "no nationality restriction",
+  "no nationality restrictions",
+  "open globally",
+  "open to all nationalities",
+  "open to applicants worldwide",
+  "open to students worldwide",
+  "open worldwide",
+  "students from any country",
+  "students from around the world",
+  "teams from around the world",
+  "worldwide applications",
+  "worldwide participation",
 ];
 
 const INELIGIBLE_AUDIENCE_SIGNALS = [
@@ -824,6 +845,84 @@ const FOREIGN_ONLY_PATTERNS = [
   /\b(?:us|u\.s\.|united states|uk|u\.k\.|united kingdom|australian|canadian|indian|malaysian|indonesian|thai|vietnamese|japanese|korean|chinese)\s+(?:citizens|residents|nationals)\s+only\b/i,
   /\bonly\s+open\s+to\s+(?:citizens|residents|nationals)\s+of\s+(?!singapore\b)[a-z .-]+\b/i,
   /\bmust\s+be\s+(?:a\s+)?(?:us|u\.s\.|uk|u\.k\.|australian|canadian|indian|malaysian|indonesian)\s+(?:citizen|resident|national)\b/i,
+];
+
+const HOST_COUNTRY_RULES = [
+  {
+    name: "Singapore",
+    pattern: "singapore|singaporean",
+    domainSuffixes: [".sg"],
+  },
+  {
+    name: "United States",
+    pattern: "us|u\\.s\\.?|united states|american",
+    domainSuffixes: [".edu", ".us"],
+  },
+  {
+    name: "United Kingdom",
+    pattern: "uk|u\\.k\\.?|united kingdom|british",
+    domainSuffixes: [".uk"],
+  },
+  {
+    name: "Australia",
+    pattern: "australia|australian",
+    domainSuffixes: [".au"],
+  },
+  {
+    name: "Canada",
+    pattern: "canada|canadian",
+    domainSuffixes: [".ca"],
+  },
+  {
+    name: "China",
+    pattern: "china|chinese",
+    domainSuffixes: [".cn"],
+  },
+  {
+    name: "India",
+    pattern: "india|indian",
+    domainSuffixes: [".in"],
+  },
+  {
+    name: "Indonesia",
+    pattern: "indonesia|indonesian",
+    domainSuffixes: [".id"],
+  },
+  {
+    name: "Japan",
+    pattern: "japan|japanese",
+    domainSuffixes: [".jp"],
+  },
+  {
+    name: "Malaysia",
+    pattern: "malaysia|malaysian",
+    domainSuffixes: [".my"],
+  },
+  {
+    name: "South Korea",
+    pattern: "south korea|korea|korean",
+    domainSuffixes: [".kr"],
+  },
+  {
+    name: "Thailand",
+    pattern: "thailand|thai",
+    domainSuffixes: [".th"],
+  },
+  {
+    name: "Vietnam",
+    pattern: "vietnam|vietnamese",
+    domainSuffixes: [".vn"],
+  },
+];
+
+const UNIVERSITY_YEAR_ELIGIBILITY_PATTERNS = [
+  /\b(?:year|years)\s*[1-4](?:\s*(?:-|–|—|to|and)\s*(?:year\s*)?[1-4])?\b/i,
+  /\b(?:first|second|third|fourth)[ -]year\s+(?:university\s+)?students?\b/i,
+];
+
+const UNIVERSITY_AGE_ELIGIBILITY_PATTERNS = [
+  /\b(?:aged?|ages?|age\s+between)\s*(\d{1,2})\s*(?:-|–|—|to|and)\s*(\d{1,2})(?:\s*years?\s*old)?\b/gi,
+  /\b(?:applicants?|participants?|candidates?)\s+(?:must\s+be\s+)?(\d{1,2})\s*(?:-|–|—|to|and)\s*(\d{1,2})\s+years?\s+old\b/gi,
 ];
 
 const CURRENT_APPLICATION_SIGNALS = [
@@ -890,6 +989,127 @@ function findFirstSignal(text, signals) {
   return signals.find((signal) => keywordMatches(text, signal));
 }
 
+function inferHostCountry(sourceUrl, text) {
+  const labelledLocation = extractLabeledValue(text, [
+    "Programme Location",
+    "Program Location",
+    "Host Country",
+    "Event Location",
+  ]);
+
+  if (labelledLocation) {
+    const locationRule = HOST_COUNTRY_RULES.find((rule) =>
+      new RegExp(`\\b(?:${rule.pattern})\\b`, "i").test(labelledLocation)
+    );
+
+    if (locationRule) return locationRule.name;
+  }
+
+  if (!sourceUrl) return null;
+
+  try {
+    const hostname = new URL(sourceUrl).hostname.toLowerCase();
+    const domainRule = HOST_COUNTRY_RULES.find((rule) =>
+      rule.domainSuffixes.some((suffix) => hostname.endsWith(suffix))
+    );
+
+    return domainRule?.name || null;
+  } catch {
+    return null;
+  }
+}
+
+function findForeignOnlyRestriction(text, hostCountry) {
+  for (const pattern of FOREIGN_ONLY_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) return match[0];
+  }
+
+  for (const rule of HOST_COUNTRY_RULES) {
+    if (rule.name === "Singapore") continue;
+
+    const country = `(?:${rule.pattern})`;
+    const audience =
+      "(?:(?:university|college|tertiary|undergraduate)\\s+)?" +
+      "(?:students?|applicants?|participants?|teams?|citizens?|residents?|nationals?)";
+    const patterns = [
+      new RegExp(`\\b${country}\\s+${audience}\\s+only\\b`, "i"),
+      new RegExp(
+        `\\b(?:only\\s+(?:open\\s+to\\s+)?|open\\s+only\\s+to\\s+|restricted\\s+to\\s+)${country}\\s+${audience}\\b`,
+        "i"
+      ),
+      new RegExp(
+        `\\b${audience}\\s+(?:from|in)\\s+(?:the\\s+)?${country}\\s+only\\b`,
+        "i"
+      ),
+      new RegExp(
+        `\\bonly\\s+${audience}\\s+(?:from|in)\\s+(?:the\\s+)?${country}\\b`,
+        "i"
+      ),
+      new RegExp(
+        `\\b${audience}\\s+(?:enrolled|studying)\\s+(?:at|in)\\s+(?:an?\\s+)?${country}\\s+(?:universities|colleges|institutions)\\s+only\\b`,
+        "i"
+      ),
+      new RegExp(
+        `\\bonly\\s+${audience}\\s+(?:enrolled|studying)\\s+(?:at|in)\\s+(?:an?\\s+)?${country}\\s+(?:universities|colleges|institutions)\\b`,
+        "i"
+      ),
+      new RegExp(
+        `\\bmust\\s+be\\s+(?:an?\\s+)?${country}\\s+${audience}\\b`,
+        "i"
+      ),
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) return match[0];
+    }
+  }
+
+  if (hostCountry && hostCountry !== "Singapore") {
+    const domesticOnlyPatterns = [
+      /\b(?:domestic|local)\s+(?:(?:university|college|tertiary|undergraduate)\s+)?(?:students?|applicants?|participants?|teams?)\s+only\b/i,
+      /\bonly\s+(?:domestic|local)\s+(?:(?:university|college|tertiary|undergraduate)\s+)?(?:students?|applicants?|participants?|teams?)\b/i,
+    ];
+
+    for (const pattern of domesticOnlyPatterns) {
+      const match = text.match(pattern);
+      if (match) return match[0];
+    }
+  }
+
+  return null;
+}
+
+function findUniversityYearSignal(text) {
+  for (const pattern of UNIVERSITY_YEAR_ELIGIBILITY_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) return match[0];
+  }
+
+  return null;
+}
+
+function findUniversityAgeRange(text) {
+  for (const pattern of UNIVERSITY_AGE_ELIGIBILITY_PATTERNS) {
+    pattern.lastIndex = 0;
+    let match;
+
+    while ((match = pattern.exec(text)) !== null) {
+      const firstAge = Number(match[1]);
+      const secondAge = Number(match[2]);
+      const minimumAge = Math.min(firstAge, secondAge);
+      const maximumAge = Math.max(firstAge, secondAge);
+
+      if (minimumAge <= 25 && maximumAge >= 18) {
+        return `${minimumAge}-${maximumAge}`;
+      }
+    }
+  }
+
+  return null;
+}
+
 function hasCurrentApplicationSignal(text) {
   return Boolean(findFirstSignal(text.toLowerCase(), CURRENT_APPLICATION_SIGNALS));
 }
@@ -948,28 +1168,47 @@ function isHistoricalPublicWebPage({
   );
 }
 
-function assessNusStudentEligibility(text, options = {}) {
+export function assessNusStudentEligibility(text, options = {}) {
   const lowerText = text.toLowerCase();
+  const hostCountry =
+    options.hostCountry || inferHostCountry(options.sourceUrl, text);
 
   const ineligibleSignal = findFirstSignal(lowerText, INELIGIBLE_AUDIENCE_SIGNALS);
   if (ineligibleSignal) {
     return {
       eligible: false,
+      hostCountry,
       reason: `Rejected because it looks targeted at ${ineligibleSignal}.`,
+      scope: "non_student",
     };
   }
 
-  if (FOREIGN_ONLY_PATTERNS.some((pattern) => pattern.test(text))) {
+  const foreignOnlyRestriction = findForeignOnlyRestriction(text, hostCountry);
+  if (foreignOnlyRestriction) {
     return {
       eligible: false,
-      reason: "Rejected because it looks restricted to another country's citizens/residents.",
+      hostCountry,
+      reason: `Rejected because it is restricted to another country's applicants: ${foreignOnlyRestriction}.`,
+      scope: "foreign_only",
+    };
+  }
+
+  const globalSignal = findFirstSignal(lowerText, GLOBAL_ELIGIBILITY_SIGNALS);
+  if (globalSignal) {
+    return {
+      eligible: true,
+      hostCountry,
+      reason: `Matched global eligibility signal: ${globalSignal}.`,
+      scope: "global",
     };
   }
 
   if (options.trustedForNusStudents) {
     return {
       eligible: true,
+      hostCountry,
       reason: "Trusted NUS student source.",
+      scope: "trusted_nus",
     };
   }
 
@@ -977,7 +1216,29 @@ function assessNusStudentEligibility(text, options = {}) {
   if (nusSignal) {
     return {
       eligible: true,
+      hostCountry,
       reason: `Matched student eligibility signal: ${nusSignal}.`,
+      scope: "student",
+    };
+  }
+
+  const universityYearSignal = findUniversityYearSignal(text);
+  if (universityYearSignal) {
+    return {
+      eligible: true,
+      hostCountry,
+      reason: `Matched university year eligibility: ${universityYearSignal}.`,
+      scope: "university_year",
+    };
+  }
+
+  const universityAgeRange = findUniversityAgeRange(text);
+  if (universityAgeRange) {
+    return {
+      eligible: true,
+      hostCountry,
+      reason: `Matched an age range that includes university students: ${universityAgeRange}.`,
+      scope: "university_age",
     };
   }
 
@@ -985,13 +1246,17 @@ function assessNusStudentEligibility(text, options = {}) {
   if (openSignal && /singapore|student|undergraduate|university|tertiary|nus/i.test(text)) {
     return {
       eligible: true,
+      hostCountry,
       reason: `Matched open eligibility signal: ${openSignal}.`,
+      scope: "open_student",
     };
   }
 
   return {
     eligible: false,
+    hostCountry,
     reason: "Rejected because no clear NUS/student eligibility signal was found.",
+    scope: "unknown",
   };
 }
 
@@ -1075,7 +1340,7 @@ function detectEligibleMajors(text, { requireExplicitEligibility = false } = {})
     }
 
     const eligibilityStatements = text.match(
-      /(?:eligible(?:\s+applicants?)?(?:\s+must be|\s+are)?|open to|only\s+open\s+to|only\s+for|for students\s+(?:from|in))[^.]{0,260}/gi
+      /(?:eligible(?:\s+applicants?)?(?:\s+must be|\s+are)?|open to|only\s+open\s+to|only\s+for|for students\s+(?:from|in)\b)[^.]{0,260}/gi
     );
 
     if (!eligibilityStatements) return [];
@@ -1447,6 +1712,14 @@ function normalizeIsoTimestamp(value) {
   return Number.isNaN(date.valueOf()) ? null : date.toISOString();
 }
 
+function addDaysToIsoTimestamp(value, days) {
+  const date = new Date(value || Date.now());
+  if (Number.isNaN(date.valueOf())) return null;
+
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString();
+}
+
 function createContentHash(text) {
   return createHash("sha256").update(normalizeWhitespace(text)).digest("hex");
 }
@@ -1692,6 +1965,8 @@ export function parseTextToOpportunityCandidate({
   lastSeenAt = null,
   requireExplicitMajorEligibility = false,
   unknownYearWhenUnstated = true,
+  ownerUserId = null,
+  hostCountry = null,
 }) {
   const text = normalizeWhitespace(
     [title, descriptionText, fullText].filter(Boolean).join(" ")
@@ -1713,6 +1988,8 @@ export function parseTextToOpportunityCandidate({
   }
 
   const eligibilityAssessment = assessNusStudentEligibility(text, {
+    hostCountry,
+    sourceUrl,
     trustedForNusStudents,
   });
 
@@ -1733,13 +2010,16 @@ export function parseTextToOpportunityCandidate({
   const applicationUrl = applicationUrlOverride || extractApplicationUrl(text);
   const deadline = deadlineOverride ?? deadlineDetails.deadline;
 
-  if (sourceType === "public_web" && !applicationUrl && !deadline) {
+  if (!applicationUrl && !deadline) {
     return null;
   }
 
   const eligibility = eligibilityOverride || eligibilityAssessment.reason;
   const normalizedPublishedAt = normalizeIsoTimestamp(sourcePublishedAt);
   const normalizedLastSeenAt = normalizeIsoTimestamp(lastSeenAt) || new Date().toISOString();
+  const listingExpiresAt = !deadline && applicationUrl
+    ? addDaysToIsoTimestamp(normalizedLastSeenAt, 60)
+    : null;
   const contentHash = createContentHash(text);
   const yearRequirementsStated = hasExplicitYearRequirement(text);
   const confidenceScore = calculateConfidenceScore({
@@ -1766,6 +2046,13 @@ export function parseTextToOpportunityCandidate({
     majorEligibilityType: majorEligibility.type,
   });
 
+  const visibilityDecision = getOpportunityVisibilityDecision({
+    majorEligibilityType: majorEligibility.type,
+    ownerUserId,
+    sourceType,
+  });
+  reviewReasons.push(...visibilityDecision.reasons);
+
   const opportunity = {
     school_slug: schoolSlug,
     source_priority: sourcePriority,
@@ -1780,6 +2067,8 @@ export function parseTextToOpportunityCandidate({
     content_hash: contentHash,
     confidence_score: confidenceScore,
     eligibility,
+    eligibility_scope: eligibilityAssessment.scope,
+    host_country: eligibilityAssessment.hostCountry,
     ...yearRange,
     eligible_majors: majorEligibility.majors,
     major_eligibility_type: majorEligibility.type,
@@ -1790,8 +2079,15 @@ export function parseTextToOpportunityCandidate({
     deadline_source_timezone:
       deadlineSourceTimezoneOverride ?? deadlineDetails.deadline_source_timezone,
     deadline_source_text: deadlineSourceTextOverride ?? deadlineDetails.deadline_source_text,
+    listing_expires_at: listingExpiresAt,
+    visibility: visibilityDecision.visibility,
+    owner_user_id: visibilityDecision.ownerUserId,
   };
-  const dedupeKey = buildOpportunityDedupeKey(opportunity);
+  const dedupeKey = scopeOpportunityDedupeKey(
+    buildOpportunityDedupeKey(opportunity),
+    visibilityDecision.visibility,
+    visibilityDecision.ownerUserId
+  );
   opportunity.dedupe_key = dedupeKey;
 
   const extractionEvidence = {
@@ -1799,6 +2095,8 @@ export function parseTextToOpportunityCandidate({
     category,
     deadline: opportunity.deadline_source_text,
     eligibility: eligibilityAssessment.reason,
+    eligibility_scope: eligibilityAssessment.scope,
+    host_country: eligibilityAssessment.hostCountry,
     major_eligibility_type: majorEligibility.type,
     organisation: resolvedOrganisation,
     source_url: resolvedSourceUrl,
@@ -1822,6 +2120,8 @@ export function parseTextToOpportunityCandidate({
     review_reasons: reviewReasons,
     dedupe_key: dedupeKey,
     extraction_evidence: extractionEvidence,
+    visibility: visibilityDecision.visibility,
+    owner_user_id: visibilityDecision.ownerUserId,
     status: "pending",
     opportunity,
   };
@@ -1859,6 +2159,8 @@ export function parseEmailToOpportunityCandidate(email, options = {}) {
     requiresNusStudentEligibility: options.requiresNusStudentEligibility ?? true,
     trustedForNusStudents: options.trustedForNusStudents || false,
     applicationUrlOverride: htmlApplicationUrl,
+    requireExplicitMajorEligibility: true,
+    ownerUserId: options.ownerUserId || null,
   });
 }
 
@@ -1903,6 +2205,7 @@ export function parseWebDocumentToOpportunityCandidate(document) {
     requireExplicitMajorEligibility:
       detailOverrides.requireExplicitMajorEligibility || false,
     unknownYearWhenUnstated: detailOverrides.unknownYearWhenUnstated ?? true,
+    hostCountry: document.hostCountry || null,
   });
 }
 

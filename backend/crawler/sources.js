@@ -20,9 +20,10 @@ const PIER71_HOSTS = ["pier71.sg", "www.pier71.sg"];
 const CYBERSG_HOSTS = ["tig.cybersg.sg", "ice71.sg"];
 
 export const SOURCE_PRIORITIES = {
+  NUS_OUTLOOK: 0,
   NUS_WEBSITE: 1,
-  NUS_OUTLOOK: 1,
   EXTERNAL_PUBLIC: 3,
+  BROAD_WEB_DISCOVERY: 4,
 };
 
 function isNusHost(host) {

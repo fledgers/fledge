@@ -1,9 +1,43 @@
 // LogIn.jsx
 // Same layout as SignUp but simpler — just email/password, no name field.
 
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { signInWithEmail, signInWithNus } from '../utils/auth';
 
 export default function LogIn() {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  async function handleNusSignIn() {
+    setSubmitting(true);
+    setErrorMessage('');
+
+    try {
+      await signInWithNus();
+    } catch (error) {
+      setSubmitting(false);
+      setErrorMessage(error.message);
+    }
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSubmitting(true);
+    setErrorMessage('');
+
+    try {
+      await signInWithEmail({ email, password });
+      navigate('/explore');
+    } catch (error) {
+      setSubmitting(false);
+      setErrorMessage(error.message);
+    }
+  }
+
   return (
     <div style={{
       fontFamily: "'DM Sans', sans-serif",
@@ -46,10 +80,14 @@ export default function LogIn() {
         </p>
 
         {/* NUS SSO */}
-        <button style={{
+        <button
+          disabled={submitting}
+          onClick={handleNusSignIn}
+          type="button"
+          style={{
           width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
           padding: '14px', borderRadius: '12px', border: '1.5px solid #e2ddd6', background: 'white',
-          fontSize: '15px', fontWeight: 500, color: '#1a1a18', cursor: 'pointer',
+          fontSize: '15px', fontWeight: 500, color: '#1a1a18', cursor: submitting ? 'wait' : 'pointer',
           fontFamily: "'DM Sans', sans-serif", marginBottom: '24px',
           boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
         }}>
@@ -68,26 +106,55 @@ export default function LogIn() {
           <div style={{ flex: 1, height: '1px', background: '#e2ddd6' }} />
         </div>
 
-        <form>
+        <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>Email</label>
-            <input type="email" placeholder="e0123456@u.nus.edu" style={inputStyle} />
+            <input
+              autoComplete="email"
+              onChange={event => setEmail(event.target.value)}
+              placeholder="e0123456@u.nus.edu"
+              required
+              style={inputStyle}
+              type="email"
+              value={email}
+            />
           </div>
           <div style={{ marginBottom: '10px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>Password</label>
-            <input type="password" placeholder="Your password" style={inputStyle} />
+            <input
+              autoComplete="current-password"
+              onChange={event => setPassword(event.target.value)}
+              placeholder="Your password"
+              required
+              style={inputStyle}
+              type="password"
+              value={password}
+            />
           </div>
 
           <p style={{ fontSize: '12px', color: '#C94F1A', marginBottom: '20px', cursor: 'pointer' }}>
             Forgot password?
           </p>
 
-          <button type="submit" style={{
+          {errorMessage && (
+            <p
+              role="alert"
+              style={{
+                background: '#FFF1ED', borderRadius: '6px', color: '#713217',
+                fontSize: '12px', lineHeight: 1.45, marginBottom: '16px',
+                padding: '10px 12px',
+              }}
+            >
+              {errorMessage}
+            </p>
+          )}
+
+          <button disabled={submitting} type="submit" style={{
             width: '100%', padding: '13px', background: '#C94F1A', color: 'white',
             border: 'none', borderRadius: '12px', fontSize: '15px', fontWeight: 500,
-            fontFamily: "'DM Sans', sans-serif", cursor: 'pointer', marginBottom: '20px',
+            fontFamily: "'DM Sans', sans-serif", cursor: submitting ? 'wait' : 'pointer', marginBottom: '20px',
           }}>
-            Log in
+            {submitting ? 'Logging in...' : 'Log in'}
           </button>
         </form>
 

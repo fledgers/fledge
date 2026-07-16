@@ -23,6 +23,8 @@ test("builds a concise candidate summary for review", () => {
     score: 12,
     confidence: 75,
     autoPublish: "no",
+    visibility: "public",
+    owner: "Not assigned",
     title: "Example Winter Programme",
     category: "winter_programme",
     organisation: "Example University",

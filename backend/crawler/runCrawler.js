@@ -12,6 +12,10 @@ import {
 } from "./outlookClient.js";
 import { fetchPublicWebDocuments } from "./publicWebClient.js";
 import {
+  discoverPublicWebDocuments,
+  isWebDiscoveryConfigured,
+} from "./webDiscoveryClient.js";
+import {
   parseEmailsToOpportunityCandidates,
   parseWebDocumentsToOpportunityCandidates,
   scoreOpportunityText,
@@ -67,7 +71,11 @@ function getCandidateDeadlineTime(candidate) {
   const opportunity = candidate.opportunity;
   const deadline = opportunity.deadline;
 
-  if (!deadline) return Number.POSITIVE_INFINITY;
+  if (!deadline) {
+    return opportunity.listing_expires_at
+      ? new Date(opportunity.listing_expires_at).getTime()
+      : Number.NEGATIVE_INFINITY;
+  }
 
   // A date-only deadline has no published cut-off time. Keep it visible until
   // the end of that Singapore calendar day instead of dropping it at UTC midnight.
@@ -79,10 +87,10 @@ function getCandidateDeadlineTime(candidate) {
   return new Date(deadline).getTime();
 }
 
-function isActiveCandidate(candidate) {
+export function isActiveCandidate(candidate) {
   const deadlineTime = getCandidateDeadlineTime(candidate);
 
-  return deadlineTime === Number.POSITIVE_INFINITY || deadlineTime >= Date.now();
+  return Number.isFinite(deadlineTime) && deadlineTime >= Date.now();
 }
 
 function getSourceByType(type) {
@@ -93,15 +101,15 @@ function getCandidatePriority(candidate) {
   return candidate.source_priority ?? candidate.opportunity?.source_priority ?? 99;
 }
 
-function compareCandidates(a, b) {
+export function compareCandidates(a, b) {
+  const priorityDiff = getCandidatePriority(a) - getCandidatePriority(b);
+  if (priorityDiff !== 0) return priorityDiff;
+
   const scoreDiff = b.candidate_score - a.candidate_score;
   if (scoreDiff !== 0) return scoreDiff;
 
   const deadlineDiff = getCandidateDeadlineTime(a) - getCandidateDeadlineTime(b);
   if (deadlineDiff !== 0) return deadlineDiff;
-
-  const priorityDiff = getCandidatePriority(a) - getCandidatePriority(b);
-  if (priorityDiff !== 0) return priorityDiff;
 
   return String(a.raw_subject).localeCompare(String(b.raw_subject));
 }
@@ -139,10 +147,17 @@ async function getPublicWebDocuments({ nusOnly = false, onSourceResult } = {}) {
   return fetchPublicWebDocuments(sources, { onSourceResult });
 }
 
-function getRunMode({ useAllSources, useNusWeb, useOutlook, usePublicWeb }) {
+function getRunMode({
+  useAllSources,
+  useNusWeb,
+  useOutlook,
+  usePublicWeb,
+  useWebDiscovery,
+}) {
   if (useAllSources) return "all";
   if (useOutlook) return "outlook";
   if (useNusWeb && usePublicWeb) return "nus_web";
+  if (useWebDiscovery && !usePublicWeb) return "web_discovery";
   if (usePublicWeb) return "web";
   return "demo";
 }
@@ -223,6 +238,7 @@ async function main() {
   const useNusWeb = getFlag("--nus-web");
   const usePublicWeb = getFlag("--web") || useNusWeb;
   const useAllSources = getFlag("--all");
+  const useWebDiscovery = getFlag("--discover") || getFlag("--web") || useAllSources;
   const saveToSupabase = getFlag("--save");
   const debug = getFlag("--debug");
   const candidates = [];
@@ -237,6 +253,7 @@ async function main() {
     useNusWeb,
     useOutlook,
     usePublicWeb,
+    useWebDiscovery,
   });
 
   if (saveToSupabase) {
@@ -254,6 +271,7 @@ async function main() {
           ...parseEmailsToOpportunityCandidates(emails, {
             schoolSlug: "nus",
             sourcePriority: outlookSource?.sourcePriority,
+            ownerUserId: process.env.OUTLOOK_OWNER_USER_ID || null,
           })
         );
         sourceResults.push({
@@ -298,13 +316,47 @@ async function main() {
       candidates.push(...parseWebDocumentsToOpportunityCandidates(webDocuments));
     }
 
-    if (!useOutlook && !usePublicWeb && !useAllSources) {
+    if (useWebDiscovery) {
+      if (!isWebDiscoveryConfigured()) {
+        console.warn(
+          "Skipping broad web discovery because TAVILY_API_KEY is not configured."
+        );
+        sourceResults.push({
+          source_id: "broad-web-discovery",
+          source_type: "web_discovery",
+          status: "skipped",
+          document_count: 0,
+          error: "TAVILY_API_KEY is not configured.",
+        });
+      } else {
+        const queryResults = [];
+        const discoveredDocuments = await discoverPublicWebDocuments({
+          onQueryResult: (result) => queryResults.push(result),
+        });
+        scannedCount += discoveredDocuments.length;
+        candidates.push(
+          ...parseWebDocumentsToOpportunityCandidates(discoveredDocuments)
+        );
+        sourceResults.push({
+          source_id: "broad-web-discovery",
+          source_type: "web_discovery",
+          status: queryResults.some((result) => result.status === "completed")
+            ? "completed"
+            : "failed",
+          document_count: discoveredDocuments.length,
+          query_results: queryResults,
+        });
+      }
+    }
+
+    if (!useOutlook && !usePublicWeb && !useWebDiscovery && !useAllSources) {
       const outlookSource = getSourceByType("outlook_mailbox");
       scannedCount = demoEmails.length;
       candidates.push(
         ...parseEmailsToOpportunityCandidates(demoEmails, {
           schoolSlug: "nus",
           sourcePriority: outlookSource?.sourcePriority,
+          ownerUserId: process.env.OUTLOOK_OWNER_USER_ID || null,
         })
       );
       sourceResults.push({
@@ -320,11 +372,14 @@ async function main() {
 
     console.log(`Scanned ${scannedCount} source items.`);
     console.log(`Found ${candidates.length} possible opportunities.`);
-    console.log(`Kept ${activeCandidates.length} opportunities with active/no deadline.`);
+    console.log(`Kept ${activeCandidates.length} active or rolling opportunities.`);
     console.log(JSON.stringify(activeCandidates, null, 2));
 
     if (saveToSupabase) {
       const expiredCount = await callRpc("expire_past_opportunity_candidates");
+      const cleanup = await callRpc("purge_expired_opportunities", {
+        retention_days: 15,
+      });
       const rows = toCandidateRows(activeCandidates);
       ingestion = await callRpc("ingest_opportunity_candidates", {
         candidate_rows: rows,
@@ -335,6 +390,13 @@ async function main() {
       if (expiredCount > 0) {
         console.log(
           `Marked ${expiredCount} past candidate${expiredCount === 1 ? "" : "s"} as expired.`
+        );
+      }
+
+      if (cleanup.opportunities_deleted > 0 || cleanup.candidates_deleted > 0) {
+        console.log(
+          `Deleted ${cleanup.opportunities_deleted} opportunities and ` +
+            `${cleanup.candidates_deleted} candidates past the 15-day retention window.`
         );
       }
 

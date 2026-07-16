@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "crawl:demo": "node backend/crawler/runCrawler.js",
     "crawl:web": "node backend/crawler/runCrawler.js --web",
+    "crawl:discover": "node backend/crawler/runCrawler.js --discover",
     "crawl:nus": "node backend/crawler/runCrawler.js --nus-web",
     "crawl:outlook": "node backend/crawler/runCrawler.js --outlook",
     "crawl:all": "node backend/crawler/runCrawler.js --all",
@@ -19,6 +20,8 @@
     "candidates:reject": "node backend/crawler/reviewCandidates.js --reject"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.6",
+    "lucide-react": "^1.24.0",
     "pdf-parse": "^2.4.5",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

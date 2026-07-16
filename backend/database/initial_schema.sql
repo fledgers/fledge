@@ -22,6 +22,10 @@ create table public.opportunities (
   id uuid primary key default gen_random_uuid(),
   school_slug text not null default 'nus',
   source_priority integer not null default 99,
+  visibility text not null default 'public' check (
+    visibility in ('public', 'private')
+  ),
+  owner_user_id uuid references auth.users(id) on delete cascade,
 
   title text not null,
   description text not null,
@@ -79,6 +83,7 @@ create table public.opportunities (
   deadline_has_time boolean not null default false,
   deadline_source_timezone text,
   deadline_source_text text,
+  listing_expires_at timestamptz,
 
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
@@ -92,6 +97,37 @@ create table public.saved_opportunities (
   created_at timestamptz default now(),
 
   primary key (user_id, opportunity_id)
+);
+
+create table public.opportunity_reports (
+  id uuid primary key default gen_random_uuid(),
+  opportunity_id uuid not null references public.opportunities(id) on delete cascade,
+  reporter_user_id uuid not null references auth.users(id) on delete cascade,
+  reason text not null check (
+    reason in (
+      'incorrect_information',
+      'already_expired',
+      'suspicious_or_scam',
+      'broken_application_link',
+      'duplicate',
+      'other'
+    )
+  ),
+  details text check (
+    details is null or char_length(btrim(details)) between 1 and 1000
+  ),
+  status text not null default 'pending' check (
+    status in ('pending', 'reviewing', 'resolved', 'dismissed')
+  ),
+  resolution_notes text check (
+    resolution_notes is null or char_length(btrim(resolution_notes)) between 1 and 1000
+  ),
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz,
+
+  constraint opportunity_reports_other_details_required check (
+    reason <> 'other' or details is not null
+  )
 );
 
 create table public.opportunity_candidates (
@@ -109,6 +145,10 @@ create table public.opportunity_candidates (
   last_seen_at timestamptz not null default now(),
   content_hash text,
   source_priority integer not null default 99,
+  visibility text not null default 'public' check (
+    visibility in ('public', 'private')
+  ),
+  owner_user_id uuid references auth.users(id) on delete cascade,
   -- Keyword relevance decides whether text is a candidate at all.
   candidate_score integer not null default 0,
   -- Field completeness is separate from keyword relevance.
@@ -120,6 +160,7 @@ create table public.opportunity_candidates (
   extraction_evidence jsonb not null default '{}'::jsonb,
   auto_publish_eligible boolean not null default false,
   auto_publish_reasons text[] not null default '{}',
+  listing_expires_at timestamptz,
   status text not null default 'pending' check (
     status in ('pending', 'approved', 'rejected', 'expired')
   ),
@@ -182,6 +223,7 @@ alter table public.majors enable row level security;
 alter table public.profiles enable row level security;
 alter table public.opportunities enable row level security;
 alter table public.saved_opportunities enable row level security;
+alter table public.opportunity_reports enable row level security;
 alter table public.opportunity_candidates enable row level security;
 alter table public.opportunity_sources enable row level security;
 alter table public.opportunity_candidate_versions enable row level security;
@@ -212,11 +254,20 @@ to authenticated
 using (auth.uid() = id)
 with check (auth.uid() = id);
 
-create policy "Anyone can view opportunities"
+create policy "Anyone can view public opportunities"
 on public.opportunities
 for select
 to anon, authenticated
-using (true);
+using (visibility = 'public');
+
+create policy "Users can view their private opportunities"
+on public.opportunities
+for select
+to authenticated
+using (
+  visibility = 'private'
+  and auth.uid() = owner_user_id
+);
 
 create policy "Users can view their own saved opportunities"
 on public.saved_opportunities
@@ -235,6 +286,35 @@ on public.saved_opportunities
 for delete
 to authenticated
 using (auth.uid() = user_id);
+
+create policy "Users can view their own opportunity reports"
+on public.opportunity_reports
+for select
+to authenticated
+using (auth.uid() = reporter_user_id);
+
+create policy "Users can report visible opportunities"
+on public.opportunity_reports
+for insert
+to authenticated
+with check (
+  auth.uid() = reporter_user_id
+  and status = 'pending'
+  and resolution_notes is null
+  and resolved_at is null
+  and exists (
+    select 1
+    from public.opportunities as opportunity
+    where opportunity.id = opportunity_reports.opportunity_id
+      and (
+        opportunity.visibility = 'public'
+        or opportunity.owner_user_id = auth.uid()
+      )
+  )
+);
+
+revoke all on public.opportunity_reports from anon;
+grant select, insert on public.opportunity_reports to authenticated;
 
 -- Crawler writes should happen from trusted server-side code using the Supabase
 -- service role key. No public read/write policy is added for candidates.
@@ -478,11 +558,17 @@ on public.opportunities(school_slug);
 create index opportunities_source_priority_idx
 on public.opportunities(source_priority);
 
+create index opportunities_visibility_owner_idx
+on public.opportunities(visibility, owner_user_id);
+
 create index opportunities_delivery_mode_idx
 on public.opportunities(delivery_mode);
 
 create index opportunities_deadline_idx
 on public.opportunities(deadline);
+
+create index opportunities_listing_expires_at_idx
+on public.opportunities(listing_expires_at);
 
 create index opportunities_last_seen_at_idx
 on public.opportunities(last_seen_at);
@@ -503,6 +589,16 @@ on public.opportunities(year_max);
 create index saved_opportunities_user_id_idx
 on public.saved_opportunities(user_id);
 
+create index opportunity_reports_status_created_at_idx
+on public.opportunity_reports(status, created_at);
+
+create index opportunity_reports_opportunity_id_idx
+on public.opportunity_reports(opportunity_id);
+
+create unique index opportunity_reports_one_pending_per_user_idx
+on public.opportunity_reports(opportunity_id, reporter_user_id)
+where status in ('pending', 'reviewing');
+
 create index opportunity_candidates_status_idx
 on public.opportunity_candidates(status);
 
@@ -511,6 +607,9 @@ on public.opportunity_candidates(school_slug);
 
 create index opportunity_candidates_source_priority_idx
 on public.opportunity_candidates(source_priority);
+
+create index opportunity_candidates_visibility_owner_idx
+on public.opportunity_candidates(visibility, owner_user_id);
 
 create index opportunity_candidates_score_idx
 on public.opportunity_candidates(candidate_score);
@@ -523,6 +622,9 @@ on public.opportunity_candidates(last_seen_at);
 
 create index opportunity_candidates_content_hash_idx
 on public.opportunity_candidates(content_hash);
+
+create index opportunity_candidates_listing_expires_at_idx
+on public.opportunity_candidates(listing_expires_at);
 
 create index opportunity_candidates_dedupe_key_idx
 on public.opportunity_candidates(dedupe_key);

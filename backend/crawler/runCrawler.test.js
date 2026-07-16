@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRunSummary, toCandidateRows } from "./runCrawler.js";
+import {
+  buildRunSummary,
+  compareCandidates,
+  isActiveCandidate,
+  toCandidateRows,
+} from "./runCrawler.js";
 
 test("builds ingestion rows without overwriting database review status", () => {
   const [row] = toCandidateRows([
@@ -56,4 +61,52 @@ test("builds a database-ready crawler run summary", () => {
     auto_published_count: 1,
     source_results: [{ source_id: "nus", status: "completed" }],
   });
+});
+
+test("orders Outlook candidates before higher-scoring public candidates", () => {
+  const candidates = [
+    {
+      raw_subject: "External competition",
+      candidate_score: 30,
+      source_priority: 4,
+      opportunity: { deadline: null },
+    },
+    {
+      raw_subject: "NUS Outlook opportunity",
+      candidate_score: 8,
+      source_priority: 0,
+      opportunity: { deadline: null },
+    },
+  ];
+
+  candidates.sort(compareCandidates);
+
+  assert.equal(candidates[0].raw_subject, "NUS Outlook opportunity");
+});
+
+test("treats only unexpired rolling applications as active", () => {
+  assert.equal(
+    isActiveCandidate({
+      opportunity: {
+        deadline: null,
+        listing_expires_at: "2999-09-13T00:00:00.000Z",
+      },
+    }),
+    true
+  );
+  assert.equal(
+    isActiveCandidate({
+      opportunity: {
+        deadline: null,
+        listing_expires_at: "2020-09-13T00:00:00.000Z",
+      },
+    }),
+    false
+  );
+  assert.equal(
+    isActiveCandidate({
+      opportunity: { deadline: null, listing_expires_at: null },
+    }),
+    false
+  );
 });

@@ -13,6 +13,10 @@ import Navbar from '../components/Navbar';
 import FilterBar from '../components/FilterBar';
 import OpportunityCard from '../components/OpportunityCard';
 import opportunities, { CATEGORIES } from '../data/opportunities';
+import {
+  isExpiredOpportunityRetained,
+  isOpportunityExpired,
+} from '../utils/formatOpportunity';
 
 export default function Saved() {
   // Sample: pretend these 4 are bookmarked. Replace with real shared state later.
@@ -41,7 +45,14 @@ export default function Saved() {
 
   // Only the opportunities that are bookmarked
   const savedOpportunities = useMemo(
-    () => opportunities.filter(o => bookmarkedIds.includes(o.id)),
+    () => opportunities.filter(opportunity => {
+      if (!bookmarkedIds.includes(opportunity.id)) return false;
+
+      return (
+        !isOpportunityExpired(opportunity) ||
+        isExpiredOpportunityRetained(opportunity)
+      );
+    }),
     [bookmarkedIds]
   );
 
@@ -87,10 +98,10 @@ export default function Saved() {
             Saved Opportunities
           </h1>
           <p style={{ fontSize: '15px', color: '#6e6e64' }}>
-            {bookmarkedIds.length} opportunities bookmarked
+            {savedOpportunities.length} opportunities bookmarked
           </p>
         </div>
-        {bookmarkedIds.length > 0 && (
+        {savedOpportunities.length > 0 && (
           <button
             onClick={clearAll}
             style={{
@@ -104,7 +115,7 @@ export default function Saved() {
         )}
       </div>
 
-      {bookmarkedIds.length === 0 ? (
+      {savedOpportunities.length === 0 ? (
         // Empty state
         <div style={{ padding: '80px 48px', textAlign: 'center' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔖</div>
@@ -126,7 +137,7 @@ export default function Saved() {
 
           <div style={{ padding: '0 48px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '13px', color: '#6a6a62' }}>
-              Showing {filtered.length} of {bookmarkedIds.length} saved opportunities
+              Showing {filtered.length} of {savedOpportunities.length} saved opportunities
             </span>
             <select
               value={sortBy}

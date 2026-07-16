@@ -3,6 +3,14 @@
 // Footer is now a full-width button with the deadline centred below it
 // (fixed the spacing issue from the mockup).
 
+import { useState } from 'react';
+import { Flag } from 'lucide-react';
+import OpportunityReportDialog from './OpportunityReportDialog';
+import {
+  getEligibilityWarning,
+  isOpportunityExpired,
+} from '../utils/formatOpportunity';
+
 const iconBg = {
   internship: '#FEF0E7',
   competition: '#FFF8E1',
@@ -27,18 +35,28 @@ const badgeStyles = {
   'Year 2+': { background: '#e8eaf6', color: '#3949ab' },
   'New': { background: '#fce4ec', color: '#b5175e' },
   'Free': { background: '#e8f5e9', color: '#2a6e2a' },
+  'Check eligibility': { background: '#FFF1CC', color: '#765400' },
 };
 
 export default function OpportunityCard({ opportunity, isBookmarked, onBookmark, highlight, topPick }) {
+  const [reportOpen, setReportOpen] = useState(false);
   const {
     id, title, category, organisation, description,
     location, yearTag, badge, icon, deadlineLabel,
   } = opportunity;
+  const expired = isOpportunityExpired(opportunity);
+  const eligibilityWarning =
+    opportunity.eligibilityWarning || getEligibilityWarning(opportunity);
+  const displayedBadge = eligibilityWarning ? 'Check eligibility' : badge;
 
   return (
     <div style={{
-      background: '#ffffff',
-      border: highlight ? '2px solid #C94F1A' : '2px solid #C4BDB5',
+      background: expired ? '#E8E8E5' : '#ffffff',
+      border: expired
+        ? '2px solid #B5B5AF'
+        : highlight
+          ? '2px solid #C94F1A'
+          : '2px solid #C4BDB5',
       borderRadius: '16px',
       padding: '20px',
       position: 'relative',
@@ -66,34 +84,56 @@ export default function OpportunityCard({ opportunity, isBookmarked, onBookmark,
           {icon}
         </div>
 
-        {!topPick && (
+        <div style={{ display: 'flex', gap: '7px', marginRight: topPick ? '82px' : 0 }}>
+          {!topPick && (
+            <button
+              aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark opportunity'}
+              aria-pressed={isBookmarked}
+              onClick={() => onBookmark && onBookmark(id)}
+              title={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+              type="button"
+              style={{
+                width: '30px', height: '30px', borderRadius: '8px',
+                background: isBookmarked ? '#fde8d8' : '#EDEAE5',
+                border: isBookmarked ? '2px solid #C94F1A' : '2px solid #C4BDB5',
+                fontSize: '14px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: isBookmarked ? '#C94F1A' : '#5a5a52',
+              }}
+            >
+              {isBookmarked ? '★' : '☆'}
+            </button>
+          )}
           <button
-            onClick={() => onBookmark && onBookmark(id)}
+            aria-label={`Report ${title}`}
+            onClick={() => setReportOpen(true)}
+            title="Report opportunity"
+            type="button"
             style={{
-              width: '30px', height: '30px', borderRadius: '8px',
-              background: isBookmarked ? '#fde8d8' : '#EDEAE5',
-              border: isBookmarked ? '2px solid #C94F1A' : '2px solid #C4BDB5',
-              fontSize: '14px', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: isBookmarked ? '#C94F1A' : '#5a5a52',
+              alignItems: 'center', background: '#EDEAE5',
+              border: '2px solid #C4BDB5', borderRadius: '8px',
+              color: '#5A5A52', cursor: 'pointer', display: 'flex',
+              height: '30px', justifyContent: 'center', padding: 0, width: '30px',
             }}
           >
-            {isBookmarked ? '★' : '☆'}
+            <Flag aria-hidden="true" size={14} />
           </button>
-        )}
+        </div>
       </div>
 
       {/* Badge */}
       <span style={{
         display: 'inline-block', fontSize: '10px', padding: '3px 9px',
         borderRadius: '10px', fontWeight: 600, marginBottom: '10px',
-        ...(badgeStyles[badge] || { background: '#EDEAE5', color: '#5a5a52' }),
+        ...(expired
+          ? { background: '#CECECA', color: '#555550' }
+          : badgeStyles[displayedBadge] || { background: '#EDEAE5', color: '#5a5a52' }),
       }}>
-        {badge}
+        {expired ? 'Expired' : displayedBadge}
       </span>
 
       {/* Title + org */}
-      <div style={{ fontSize: '15px', fontWeight: 600, color: '#1a1a18', marginBottom: '3px' }}>
+      <div style={{ fontSize: '15px', fontWeight: 600, color: expired ? '#62625D' : '#1a1a18', marginBottom: '3px' }}>
         {title}
       </div>
       <div style={{ fontSize: '12px', color: '#7a7a72', marginBottom: '8px' }}>
@@ -104,6 +144,24 @@ export default function OpportunityCard({ opportunity, isBookmarked, onBookmark,
       <div style={{ fontSize: '13px', color: '#5a5a52', lineHeight: 1.5, marginBottom: '12px' }}>
         {description}
       </div>
+
+      {!expired && eligibilityWarning && (
+        <div
+          role="note"
+          style={{
+            background: '#FFF8E6',
+            borderLeft: '3px solid #D49A00',
+            borderRadius: '4px',
+            color: '#5F4A12',
+            fontSize: '11px',
+            lineHeight: 1.45,
+            marginBottom: '12px',
+            padding: '8px 10px',
+          }}
+        >
+          {eligibilityWarning}
+        </div>
+      )}
 
       {/* Meta tags — standardized location + year/pay tags */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
@@ -117,17 +175,24 @@ export default function OpportunityCard({ opportunity, isBookmarked, onBookmark,
 
       {/* Footer — full width button, deadline centred below */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <button style={{
-          width: '100%', background: '#C94F1A', color: '#ffffff', border: 'none',
+        <button disabled={expired} style={{
+          width: '100%', background: expired ? '#A3A39D' : '#C94F1A', color: '#ffffff', border: 'none',
           borderRadius: '8px', padding: '9px 16px', fontSize: '13px', fontWeight: 500,
-          cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", textAlign: 'center',
+          cursor: expired ? 'not-allowed' : 'pointer', fontFamily: "'DM Sans', sans-serif", textAlign: 'center',
         }}>
-          View Details
+          {expired ? 'Expired' : 'View Details'}
         </button>
         <span style={{ fontSize: '11px', color: '#7a7a72', textAlign: 'center' }}>
-          ⏰ {deadlineLabel}
+          ⏰ {expired ? 'Application closed' : deadlineLabel}
         </span>
       </div>
+
+      {reportOpen && (
+        <OpportunityReportDialog
+          onClose={() => setReportOpen(false)}
+          opportunity={opportunity}
+        />
+      )}
 
     </div>
   );

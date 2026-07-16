@@ -1,12 +1,49 @@
 // SignUp.jsx
 // The sign up page — NUS email SSO button + fallback email/password form.
-// The actual auth logic (what happens when buttons are clicked) gets
-// plugged in by your teammate once Supabase Auth is set up. For now
-// these buttons don't do anything when clicked.
-
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { signInWithNus, signUpWithEmail } from '../utils/auth';
 
 export default function SignUp() {
+  const navigate = useNavigate();
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [status, setStatus] = useState('idle');
+  const [message, setMessage] = useState('');
+
+  async function handleNusSignIn() {
+    setStatus('submitting');
+    setMessage('');
+
+    try {
+      await signInWithNus();
+    } catch (error) {
+      setStatus('idle');
+      setMessage(error.message);
+    }
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setStatus('submitting');
+    setMessage('');
+
+    try {
+      const data = await signUpWithEmail({ fullName, email, password });
+      if (data.session) {
+        navigate('/explore');
+        return;
+      }
+
+      setStatus('success');
+      setMessage('Check your email to confirm your account, then log in.');
+    } catch (error) {
+      setStatus('idle');
+      setMessage(error.message);
+    }
+  }
+
   return (
     <div style={{
       fontFamily: "'DM Sans', sans-serif",
@@ -50,11 +87,14 @@ export default function SignUp() {
         </p>
 
         {/* NUS / Microsoft SSO button */}
-        {/* TODO (teammate): onClick should call signInWithNUS() from supabase.js */}
-        <button style={{
+        <button
+          disabled={status === 'submitting'}
+          onClick={handleNusSignIn}
+          type="button"
+          style={{
           width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
           padding: '14px', borderRadius: '12px', border: '1.5px solid #e2ddd6', background: 'white',
-          fontSize: '15px', fontWeight: 500, color: '#1a1a18', cursor: 'pointer',
+          fontSize: '15px', fontWeight: 500, color: '#1a1a18', cursor: status === 'submitting' ? 'wait' : 'pointer',
           fontFamily: "'DM Sans', sans-serif", marginBottom: '24px',
           boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
         }}>
@@ -82,27 +122,65 @@ export default function SignUp() {
         </div>
 
         {/* Email/password form */}
-        {/* TODO (teammate): wire up state + onSubmit to call signUpWithEmail() */}
-        <form>
+        <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>Full name</label>
-            <input type="text" placeholder="Your name" style={inputStyle} />
+            <input
+              autoComplete="name"
+              onChange={event => setFullName(event.target.value)}
+              placeholder="Your name"
+              required
+              style={inputStyle}
+              type="text"
+              value={fullName}
+            />
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>Email</label>
-            <input type="email" placeholder="e0123456@u.nus.edu" style={inputStyle} />
+            <input
+              autoComplete="email"
+              onChange={event => setEmail(event.target.value)}
+              placeholder="e0123456@u.nus.edu"
+              required
+              style={inputStyle}
+              type="email"
+              value={email}
+            />
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>Password</label>
-            <input type="password" placeholder="Min. 8 characters" style={inputStyle} />
+            <input
+              autoComplete="new-password"
+              minLength={8}
+              onChange={event => setPassword(event.target.value)}
+              placeholder="Min. 8 characters"
+              required
+              style={inputStyle}
+              type="password"
+              value={password}
+            />
           </div>
 
-          <button type="submit" style={{
+          {message && (
+            <p
+              role={status === 'success' ? 'status' : 'alert'}
+              style={{
+                background: status === 'success' ? '#E8F5E9' : '#FFF1ED',
+                color: status === 'success' ? '#2A6E2A' : '#713217',
+                fontSize: '12px', lineHeight: 1.45, padding: '10px 12px',
+                borderRadius: '6px', marginBottom: '16px',
+              }}
+            >
+              {message}
+            </p>
+          )}
+
+          <button disabled={status === 'submitting'} type="submit" style={{
             width: '100%', padding: '13px', background: '#C94F1A', color: 'white',
             border: 'none', borderRadius: '12px', fontSize: '15px', fontWeight: 500,
-            fontFamily: "'DM Sans', sans-serif", cursor: 'pointer', marginTop: '4px', marginBottom: '20px',
+            fontFamily: "'DM Sans', sans-serif", cursor: status === 'submitting' ? 'wait' : 'pointer', marginTop: '4px', marginBottom: '20px',
           }}>
-            Create account
+            {status === 'submitting' ? 'Creating account...' : 'Create account'}
           </button>
         </form>
 

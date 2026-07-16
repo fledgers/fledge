@@ -30,3 +30,16 @@ test("does not treat an inferred year range as a hard restriction", () => {
 
   assert.equal(matchesYear(opportunity, 1), true);
 });
+
+test("keeps unknown major and year eligibility visible to everyone", () => {
+  const opportunity = {
+    eligible_majors: [],
+    major_eligibility_type: "unknown",
+    year_min: null,
+    year_max: null,
+    year_eligibility_type: "unknown",
+  };
+
+  assert.equal(matchesMajor(opportunity, "history"), true);
+  assert.equal(matchesYear(opportunity, 4), true);
+});

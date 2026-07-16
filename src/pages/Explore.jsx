@@ -8,6 +8,7 @@ import FilterBar from '../components/FilterBar';
 import OpportunityCard from '../components/OpportunityCard';
 import opportunities, { CATEGORIES, MAJORS } from '../data/opportunities';
 import { matchesMajor, matchesYear } from '../utils/filterOpportunities';
+import { isOpportunityExpired } from '../utils/formatOpportunity';
 
 function getDeadlineTime(opportunity) {
   return opportunity.deadline ? new Date(opportunity.deadline).getTime() : Number.POSITIVE_INFINITY;
@@ -21,6 +22,10 @@ export default function Explore() {
   const [activeYear, setActiveYear] = useState(0); // 0 = all years
   const [sortBy, setSortBy] = useState('deadline');
   const [bookmarks, setBookmarks] = useState([]);
+  const activeOpportunities = useMemo(
+    () => opportunities.filter(opportunity => !isOpportunityExpired(opportunity)),
+    []
+  );
 
   function toggleBookmark(id) {
     setBookmarks(prev =>
@@ -42,7 +47,7 @@ export default function Explore() {
   // --- FILTER + SORT LOGIC ---
   // useMemo recalculates only when one of the dependencies changes
   const filtered = useMemo(() => {
-    let results = opportunities;
+    let results = activeOpportunities;
 
     // Search filter — checks title, org, and description
     if (searchQuery.trim()) {
@@ -79,7 +84,7 @@ export default function Explore() {
     }
 
     return results;
-  }, [searchQuery, activeCategories, selectedMajor, activeYear, sortBy]);
+  }, [activeOpportunities, searchQuery, activeCategories, selectedMajor, activeYear, sortBy]);
 
   return (
     <div style={{ fontFamily: "'DM Sans', sans-serif", background: '#F5F2ED', color: '#1a1a18', minHeight: '100vh' }}>
@@ -90,7 +95,7 @@ export default function Explore() {
           Explore Opportunities
         </h1>
         <p style={{ fontSize: '15px', color: '#6e6e64' }}>
-          {opportunities.length}+ opportunities across internships, research, programmes and more
+          {activeOpportunities.length}+ opportunities across internships, research, programmes and more
         </p>
       </div>
 
@@ -167,7 +172,7 @@ export default function Explore() {
       {/* Results count + sort */}
       <div style={{ padding: '0 48px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: '13px', color: '#6a6a62' }}>
-          Showing {filtered.length} of {opportunities.length} opportunities
+          Showing {filtered.length} of {activeOpportunities.length} opportunities
         </span>
         <select
           value={sortBy}
