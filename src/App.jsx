@@ -12,6 +12,8 @@ import SignUp from './pages/SignUp';
 import LogIn from './pages/LogIn';
 import Profile from './pages/Profile';
 import ResetPassword from './pages/ResetPassword';
+import Outlook from './pages/Outlook';
+import OutlookGate from './components/OutlookGate';
 import OpportunitiesProvider from './providers/OpportunitiesProvider';
 
 // Load fonts once, globally
@@ -25,14 +27,15 @@ export default function App() {
     <BrowserRouter>
       <OpportunitiesProvider>
         <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/explore" element={<Explore />} />
-          <Route path="/saved" element={<Saved />} />
-          <Route path="/for-you" element={<ForYou />} />
+          <Route path="/" element={<OutlookGate><Landing /></OutlookGate>} />
+          <Route path="/explore" element={<OutlookGate><Explore /></OutlookGate>} />
+          <Route path="/saved" element={<OutlookGate><Saved /></OutlookGate>} />
+          <Route path="/for-you" element={<OutlookGate><ForYou /></OutlookGate>} />
           <Route path="/signup" element={<SignUp />} />
           <Route path="/login" element={<LogIn />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/outlook" element={<Outlook />} />
         </Routes>
       </OpportunitiesProvider>
     </BrowserRouter>

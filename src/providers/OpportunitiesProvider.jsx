@@ -8,6 +8,7 @@ import {
   saveOpportunity,
   upsertProfile,
 } from '../data/opportunityService.js';
+import { saveOutlookOnboardingChoice } from '../data/outlookService.js';
 import { isSupabaseConfigured, supabase } from '../lib/supabase.js';
 
 const EMPTY_STATE = {
@@ -127,6 +128,13 @@ export default function OpportunitiesProvider({ children }) {
     return savedProfile;
   }, [data.user]);
 
+  const updateOutlookPreference = useCallback(async decision => {
+    requireUser(data.user);
+    const savedProfile = await saveOutlookOnboardingChoice(data.user.id, decision);
+    setData(current => ({ ...current, profile: savedProfile }));
+    return savedProfile;
+  }, [data.user]);
+
   const value = useMemo(() => ({
     ...data,
     clearSaved,
@@ -134,8 +142,18 @@ export default function OpportunitiesProvider({ children }) {
     isLoading,
     refresh,
     toggleSaved,
+    updateOutlookPreference,
     updateProfile,
-  }), [clearSaved, data, error, isLoading, refresh, toggleSaved, updateProfile]);
+  }), [
+    clearSaved,
+    data,
+    error,
+    isLoading,
+    refresh,
+    toggleSaved,
+    updateOutlookPreference,
+    updateProfile,
+  ]);
 
   return (
     <OpportunitiesContext.Provider value={value}>

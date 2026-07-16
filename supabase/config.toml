@@ -1,0 +1,11 @@
+[functions.outlook-authorize]
+verify_jwt = true
+
+[functions.outlook-callback]
+verify_jwt = false
+
+[functions.outlook-status]
+verify_jwt = true
+
+[functions.outlook-disconnect]
+verify_jwt = true

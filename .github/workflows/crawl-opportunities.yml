@@ -30,16 +30,14 @@ jobs:
       MICROSOFT_TENANT_ID: ${{ secrets.MICROSOFT_TENANT_ID }}
       MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
       MICROSOFT_AUTHORITY_TENANT: organizations
-      OUTLOOK_REFRESH_TOKEN: ${{ secrets.OUTLOOK_REFRESH_TOKEN }}
-      OUTLOOK_OWNER_USER_ID: ${{ secrets.OUTLOOK_OWNER_USER_ID }}
       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -47,8 +45,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Crawl public websites and connected Outlook mailboxes
+        if: github.event_name == 'schedule'
+        run: npm run crawl:all -- --save
+
       - name: Crawl public websites
-        if: github.event_name == 'schedule' || inputs.include_outlook != true
+        if: github.event_name == 'workflow_dispatch' && inputs.include_outlook != true
         run: npm run crawl:web -- --save
 
       - name: Crawl public websites and Outlook

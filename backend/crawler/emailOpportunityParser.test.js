@@ -109,6 +109,38 @@ test("uses the internet message ID as the stable Outlook source identity", () =>
   assert.equal(candidate.opportunity.deadline_source, "nus");
 });
 
+test("scopes Outlook source identities to the consenting mailbox", () => {
+  const candidate = parseEmailToOpportunityCandidate(
+    {
+      id: "graph-id",
+      internetMessageId: "<shared-message@example.edu>",
+      subject: "Applications open: student competition",
+      from: { emailAddress: { address: "office@nus.edu.sg" } },
+      receivedDateTime: "2026-07-15T08:00:00Z",
+      body: {
+        contentType: "text",
+        content: "Open to NUS students. Apply by 30 Aug 2026 at https://example.edu/apply",
+      },
+      webLink: "https://outlook.office.com/mail/graph-id",
+    },
+    {
+      ownerUserId: "11111111-1111-4111-8111-111111111111",
+      sourceIdentityPrefix: "11111111-1111-4111-8111-111111111111",
+      sourcePriority: 0,
+    }
+  );
+
+  assert.equal(
+    candidate.source_message_id,
+    "11111111-1111-4111-8111-111111111111:<shared-message@example.edu>"
+  );
+  assert.equal(
+    candidate.opportunity.mailbox_owner_user_id,
+    "11111111-1111-4111-8111-111111111111"
+  );
+  assert.equal(candidate.source_url, "https://example.edu/apply");
+});
+
 test("keeps a major-restricted Outlook opportunity private to the mailbox owner", () => {
   const ownerUserId = "11111111-1111-4111-8111-111111111111";
   const candidate = parseEmailToOpportunityCandidate(

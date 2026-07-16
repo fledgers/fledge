@@ -5,13 +5,17 @@
 Run the dated migrations in `backend/database/migrations` in phase-number
 order. The Phase 3 through Phase 6 migrations require the Phase 1 quality
 fields and the Phase 2 idempotent ingestion function to exist first. For the
-2026-07-16 files, run Phase 9, Phase 10, Phase 11, then Phase 12; alphabetical
-filename sorting places `phase9` after `phase12`, which is not the intended
-database order.
+2026-07-16 files, run Phase 9, Phase 10, Phase 11, Phase 12, then Phase 13;
+alphabetical filename sorting is not the intended database order.
 
 Phase 12 installs a Supabase Auth trigger that creates a `profiles` row for
 each new account and backfills accounts that already exist. Run it after Phase
-11 in the Supabase SQL Editor, then reload the Data API schema if necessary:
+11 in the Supabase SQL Editor.
+
+Phase 13 adds per-student Outlook connection records, one-time OAuth state,
+encrypted refresh-token storage through Supabase Vault, and the RPC functions
+used by the Edge Functions and crawler. Run it after Phase 12, then reload the
+Data API schema:
 
 ```sql
 notify pgrst, 'reload schema';
@@ -41,44 +45,38 @@ The discovery client uses eight NUS/student-focused searches per run and sends
 the returned pages through the normal eligibility, quality, expiry, and
 deduplication pipeline.
 
-## One-time Outlook mailbox connection
+## Hosted student Outlook connection
 
-The crawler needs a refresh token before `crawl:outlook` can read the connected
-mailbox. The token is not the Microsoft password. It is issued only after the
-mailbox owner signs in and grants the delegated `Mail.Read` permission.
+Fledge now treats sign-in and Outlook permission as two separate decisions:
 
-For the current single-mailbox MVP:
+1. Supabase Auth identifies the Fledge student account.
+2. The `/outlook` page asks whether that student wants to connect Outlook.
+3. The student may connect Outlook or continue without it.
+4. Connecting invokes the hosted `outlook-authorize` Edge Function.
+5. Microsoft redirects to the hosted `outlook-callback` Edge Function.
+6. The callback stores the refresh token in Supabase Vault under that student's
+   user ID. The token is never returned to the browser.
+7. A saved crawler run reads all connected mailboxes through the service-role
+   RPC and records success or failure separately for each mailbox.
 
-1. In the Microsoft app registration, add this exact **Web** redirect URI:
+The Microsoft permission request contains `User.Read`, `Mail.Read`, and
+`offline_access`. `Mail.Read` permits reading the connected mailbox;
+`offline_access` permits Microsoft to issue a refresh token so scheduled crawls
+can run after the student closes Fledge. Fledge does not ask for `Mail.Send`.
 
-   ```text
-   http://127.0.0.1:8787/callback
-   ```
+The production Microsoft **Web** redirect URI is:
 
-2. Add delegated Microsoft Graph permissions for `Mail.Read` and `User.Read`.
-3. Put the client ID, tenant ID, and client secret in `backend/.env`.
-4. Keep `MICROSOFT_AUTHORITY_TENANT=organizations` and set
-   `MICROSOFT_SETUP_REDIRECT_URI=http://127.0.0.1:8787/callback`.
-5. From the VS Code terminal, run:
+```text
+https://YOUR_SUPABASE_PROJECT_REF.supabase.co/functions/v1/outlook-callback
+```
 
-   ```bash
-   npm run outlook:authorize
-   ```
+This is a backend callback, not a page students browse directly. After storing
+the connection it sends the browser back to `FRONTEND_URL/outlook`.
 
-6. Open the URL printed by the command, sign in to the mailbox, and accept the
-   requested permissions.
-7. Put the returned token in `OUTLOOK_REFRESH_TOKEN` in `backend/.env`. Add the
-   same value as a GitHub Actions secret when scheduled Outlook crawling is
-   enabled.
-
-The local URL is only a temporary callback for this one-time terminal command;
-it does not run a local version of the Fledge frontend. The command validates a
-random OAuth state value and uses PKCE before exchanging the authorization code.
-Never commit the returned refresh token.
-
-This is suitable for one consented administrator mailbox. A later multi-user
-version needs a hosted callback and encrypted, per-user token storage instead
-of one shared environment variable.
+`npm run outlook:authorize` and `MICROSOFT_SETUP_REDIRECT_URI` remain available
+only as a legacy local test for one mailbox. They are not needed by the hosted
+student flow and their refresh token should not be added to GitHub Actions. A
+saved crawl never falls back to this environment token.
 
 Saved crawls now perform this sequence:
 
@@ -118,8 +116,9 @@ was extracted and the source does not contain an explicit closed/cancelled
 signal. The crawler does not submit third-party forms and therefore cannot
 guarantee that a final form submission will succeed.
 
-Outlook candidates always remain pending for review. This is intentional until
-the product has an explicit mailbox consent, retention, and sharing policy.
+Outlook candidates currently remain pending for review. Explicitly all-major
+Outlook opportunities can later be published publicly; restricted, inferred,
+or unstated-major opportunities remain private to the mailbox owner.
 
 ## External student eligibility
 
@@ -162,24 +161,21 @@ SUPABASE_SECRET_KEY
 TAVILY_API_KEY
 ```
 
-For manually triggered Outlook crawling, also add:
+For hosted Outlook crawling, also add:
 
 ```text
 MICROSOFT_CLIENT_ID
 MICROSOFT_TENANT_ID
 MICROSOFT_CLIENT_SECRET
-OUTLOOK_REFRESH_TOKEN
-OUTLOOK_OWNER_USER_ID
 ```
 
-`OUTLOOK_OWNER_USER_ID` is the Supabase `auth.users.id` UUID belonging to the
-mailbox refresh token. For the current single-mailbox MVP it is an environment
-variable; a multi-user version should store each encrypted refresh token with
-its owner UUID in the database.
+Do not add a student's refresh token to GitHub. Phase 13 stores each token in
+Supabase Vault and the workflow uses `SUPABASE_SECRET_KEY` to request the
+connected mailbox list when the crawler starts.
 
-During the testing stage, the scheduled workflow runs public-web crawling at
-03:17 Singapore time on every second calendar day. Outlook is available only
-through the workflow's manual `include_outlook` option.
+During the testing stage, the scheduled workflow runs public-web and connected
+Outlook crawling at 03:17 Singapore time on every second calendar day. A manual
+workflow run can turn Outlook crawling off with the `include_outlook` option.
 
 Outlook candidates use source priority `0`, NUS websites use `1`, known
 external sources use `3`, and broad discovery uses `4`. Outlook is collected
@@ -195,6 +191,9 @@ Outlook visibility is conservative:
 Apply `20260715_phase7_add_outlook_visibility.sql` before relying on this rule.
 Its row-level security policies, rather than the frontend, prevent other users
 from selecting private opportunities.
+
+Apply `20260716_phase13_add_student_outlook_connections.sql` to replace the
+single shared-mailbox setup with per-student, encrypted connections.
 
 Apply `20260715_phase8_add_rolling_opportunity_expiration.sql` to enforce the
 60-day rolling rule in Supabase and update `active_opportunities`.
@@ -281,13 +280,115 @@ VITE_SUPABASE_PUBLISHABLE_KEY
 Use the Supabase project base URL and publishable key. Do not add the Supabase
 secret key to Netlify. In Supabase Authentication URL Configuration, set the
 Netlify site URL as the Site URL and allow the deployed `/explore` and
-`/reset-password` callback URLs. Configure the Azure provider in Supabase only
-when the **Continue with NUS Email** button is ready to be tested.
+`/reset-password` callback URLs. Also allow `/outlook`, because a student who
+signs in while connecting Outlook must return to that page.
 
 The `Verify application` GitHub workflow runs lint, automated tests, and a
 production build for every pull request and every push to `main`. Add the same
 two public Vite values as GitHub Actions secrets so that CI builds with the
 deployed configuration.
+
+## Deploying student Outlook consent
+
+Repository code cannot change settings inside your Supabase, Microsoft Azure,
+Netlify, or GitHub accounts. Complete these steps after Phase 13 succeeds.
+
+### 1. Configure the Microsoft app
+
+In Azure Portal, open **Microsoft Entra ID**, **App registrations**, then the
+Fledge registration.
+
+1. Open **Authentication** under **Manage**.
+2. Add a **Web** platform if one does not exist.
+3. Add both exact redirect URIs:
+
+   ```text
+   https://YOUR_SUPABASE_PROJECT_REF.supabase.co/auth/v1/callback
+   https://YOUR_SUPABASE_PROJECT_REF.supabase.co/functions/v1/outlook-callback
+   ```
+
+   The first URI is only for **Continue with NUS Email** through Supabase Auth.
+   The second URI is only for granting Outlook mailbox access.
+
+4. Under **API permissions**, add delegated Microsoft Graph permissions
+   `User.Read` and `Mail.Read`.
+5. Keep the supported account type compatible with NUS organisational
+   accounts. NUS may require administrator consent before student mailboxes can
+   grant `Mail.Read`.
+
+### 2. Configure Supabase Auth
+
+In Supabase, open **Authentication**, **Providers**, then **Azure (Microsoft)**.
+Enter the Azure client ID and client secret. Use the `organizations` tenant URL
+for a multi-tenant app unless Microsoft or NUS tells you to restrict the app to
+one tenant.
+
+In **Authentication**, **URL Configuration**:
+
+1. Set **Site URL** to the deployed Fledge website.
+2. Add the deployed `/outlook`, `/explore`, and `/reset-password` URLs to the
+   allowed redirect list.
+
+### 3. Configure and deploy Edge Functions
+
+In Supabase **Edge Functions**, add these project secrets:
+
+```text
+MICROSOFT_CLIENT_ID
+MICROSOFT_CLIENT_SECRET
+MICROSOFT_AUTHORITY_TENANT=organizations
+MICROSOFT_OUTLOOK_REDIRECT_URI=https://YOUR_SUPABASE_PROJECT_REF.supabase.co/functions/v1/outlook-callback
+FRONTEND_URL=https://YOUR_FLEDGE_WEBSITE
+```
+
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are supplied to hosted Edge
+Functions by Supabase. Do not create `VITE_` copies of either Microsoft secret.
+
+The Supabase CLI is not installed in this repository. From the project root,
+use `npx`:
+
+```bash
+npx supabase login
+npx supabase link --project-ref YOUR_SUPABASE_PROJECT_REF
+npx supabase functions deploy outlook-authorize
+npx supabase functions deploy outlook-callback
+npx supabase functions deploy outlook-status
+npx supabase functions deploy outlook-disconnect
+```
+
+`supabase/config.toml` requires a user JWT for all functions except the
+Microsoft callback. The callback is public because Microsoft cannot send a
+Fledge JWT, but it still validates a short-lived, one-use OAuth state and PKCE
+verifier before accepting an authorization code.
+
+### 4. Test the complete flow
+
+1. Open the deployed Fledge website in a private browser window.
+2. Confirm that Fledge asks whether to connect Outlook before Explore opens.
+3. Test **Continue without Outlook**.
+4. Sign in, return to `/outlook`, and select **Connect Outlook**.
+5. Accept Microsoft consent and confirm the browser returns to Fledge showing
+   the connected Microsoft account.
+6. In Supabase SQL Editor, check safe connection metadata:
+
+   ```sql
+   select user_id, status, microsoft_email, connected_at, last_crawled_at
+   from public.outlook_connections;
+   ```
+
+7. Run `npm run crawl:all -- --save` in the VS Code terminal. Check that
+   `last_crawled_at` changes and that candidates have the correct owner UUID.
+8. Test **Disconnect Outlook**. The connection token and that student's private
+   Outlook-derived records should be removed.
+
+Phase 13 also guards against a disconnect happening during a scheduled crawl.
+Late crawler results cannot reactivate the deleted connection or insert new
+records from that disconnected mailbox. Public opportunities that had already
+been shared from that mailbox remain public; private records are removed.
+
+Before inviting real students, publish a privacy policy explaining mailbox
+access and data retention, obtain any permission required by NUS, and complete
+Microsoft publisher or administrator approval if the tenant requires it.
 
 ## Monitoring queries
 

@@ -66,7 +66,10 @@ export default function Profile() {
               Keep your NUS study details current for filtering and eligibility checks.
             </p>
           </div>
-          <Link to="/explore" style={backLinkStyle}>Back to Explore</Link>
+          <div style={{ display: 'flex', gap: '16px' }}>
+            <Link to="/outlook" style={backLinkStyle}>Manage Outlook</Link>
+            <Link to="/explore" style={backLinkStyle}>Back to Explore</Link>
+          </div>
         </div>
 
         {isLoading || error ? (

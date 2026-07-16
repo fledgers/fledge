@@ -57,7 +57,9 @@ async function loadSavedOpportunities(client, userId) {
 async function loadProfile(client, userId) {
   const { data, error } = await client
     .from('profiles')
-    .select('full_name, university, faculty, major, year_of_study')
+    .select(
+      'full_name, university, faculty, major, year_of_study, outlook_onboarding_status, outlook_onboarding_updated_at'
+    )
     .eq('id', userId)
     .maybeSingle();
 
@@ -141,7 +143,9 @@ export async function upsertProfile(userId, profile) {
       major: profile.major || null,
       year_of_study: profile.year_of_study || null,
     }, { onConflict: 'id' })
-    .select('full_name, university, faculty, major, year_of_study')
+    .select(
+      'full_name, university, faculty, major, year_of_study, outlook_onboarding_status, outlook_onboarding_updated_at'
+    )
     .single();
 
   throwQueryError('Your profile could not be saved.', error);

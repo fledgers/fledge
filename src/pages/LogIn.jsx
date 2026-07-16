@@ -2,7 +2,7 @@
 // Same layout as SignUp but simpler — just email/password, no name field.
 
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   sendPasswordResetEmail,
   signInWithEmail,
@@ -11,11 +11,16 @@ import {
 
 export default function LogIn() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
+  const requestedNext = searchParams.get('next') || '/explore';
+  const nextPath = requestedNext.startsWith('/') && !requestedNext.startsWith('//')
+    ? requestedNext
+    : '/explore';
 
   async function handleNusSignIn() {
     setSubmitting(true);
@@ -23,7 +28,7 @@ export default function LogIn() {
     setStatusMessage('');
 
     try {
-      await signInWithNus();
+      await signInWithNus(nextPath);
     } catch (error) {
       setSubmitting(false);
       setErrorMessage(error.message);
@@ -38,7 +43,7 @@ export default function LogIn() {
 
     try {
       await signInWithEmail({ email, password });
-      navigate('/explore');
+      navigate(nextPath);
     } catch (error) {
       setSubmitting(false);
       setErrorMessage(error.message);
@@ -201,7 +206,7 @@ export default function LogIn() {
         </form>
 
         <p style={{ textAlign: 'center', fontSize: '13px', color: '#9a9a8a' }}>
-          Don't have an account? <Link to="/signup" style={{ color: '#C94F1A', fontWeight: 500, textDecoration: 'none' }}>Sign up</Link>
+          Don't have an account? <Link to={`/signup?next=${encodeURIComponent(nextPath)}`} style={{ color: '#C94F1A', fontWeight: 500, textDecoration: 'none' }}>Sign up</Link>
         </p>
 
       </div>

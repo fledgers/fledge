@@ -15,6 +15,15 @@ create table public.profiles (
   faculty text,
   major text references public.majors(slug),
   year_of_study integer check (year_of_study between 1 and 4),
+  outlook_onboarding_status text not null default 'not_asked' check (
+    outlook_onboarding_status in (
+      'not_asked',
+      'declined',
+      'connected',
+      'disconnected'
+    )
+  ),
+  outlook_onboarding_updated_at timestamptz,
   created_at timestamptz default now()
 );
 

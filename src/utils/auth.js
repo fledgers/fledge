@@ -10,14 +10,19 @@ function requireSupabase() {
   return supabase;
 }
 
-export async function signUpWithEmail({ fullName, email, password }) {
+export async function signUpWithEmail({
+  fullName,
+  email,
+  password,
+  redirectPath = '/explore',
+}) {
   const client = requireSupabase();
   const { data, error } = await client.auth.signUp({
     email: email.trim(),
     password,
     options: {
       data: { full_name: fullName.trim() },
-      emailRedirectTo: `${window.location.origin}/explore`,
+      emailRedirectTo: `${window.location.origin}${redirectPath}`,
     },
   });
 
@@ -36,12 +41,12 @@ export async function signInWithEmail({ email, password }) {
   return data;
 }
 
-export async function signInWithNus() {
+export async function signInWithNus(redirectPath = '/explore') {
   const client = requireSupabase();
   const { data, error } = await client.auth.signInWithOAuth({
     provider: 'azure',
     options: {
-      redirectTo: `${window.location.origin}/explore`,
+      redirectTo: `${window.location.origin}${redirectPath}`,
       scopes: 'email openid profile',
     },
   });

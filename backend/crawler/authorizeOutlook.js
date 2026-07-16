@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { getRequiredEnv, loadLocalEnv } from "./env.js";
 
-const DEFAULT_REDIRECT_URI = "http://127.0.0.1:8787/callback";
+const DEFAULT_REDIRECT_URI = "http://localhost:8787/callback";
 const OUTLOOK_SCOPES = [
   "openid",
   "profile",
@@ -221,7 +221,7 @@ export async function authorizeOutlookMailbox() {
   }
 
   console.log("Outlook authorization succeeded.");
-  console.log("Add this value to OUTLOOK_REFRESH_TOKEN in backend/.env and GitHub Actions secrets:");
+  console.log("For legacy local testing, add this value to OUTLOOK_REFRESH_TOKEN in backend/.env:");
   console.log(`\n${tokenResponse.refresh_token}\n`);
   console.log("Keep this token private. Do not commit it to Git.");
 }

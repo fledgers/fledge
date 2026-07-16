@@ -22,7 +22,7 @@ async function requestJson(url, options) {
   return body;
 }
 
-export async function getAccessTokenFromRefreshToken(refreshToken) {
+export async function refreshOutlookAccessToken(refreshToken) {
   const tenantId = getTenantId();
   const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
 
@@ -41,7 +41,16 @@ export async function getAccessTokenFromRefreshToken(refreshToken) {
     body,
   });
 
-  return tokenResponse.access_token;
+  return {
+    accessToken: tokenResponse.access_token,
+    refreshToken: tokenResponse.refresh_token || null,
+    expiresIn: tokenResponse.expires_in || null,
+  };
+}
+
+export async function getAccessTokenFromRefreshToken(refreshToken) {
+  const tokenResult = await refreshOutlookAccessToken(refreshToken);
+  return tokenResult.accessToken;
 }
 
 export async function listRecentMessages(accessToken, { top = 25 } = {}) {

@@ -1,23 +1,28 @@
 // SignUp.jsx
 // The sign up page — NUS email SSO button + fallback email/password form.
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { signInWithNus, signUpWithEmail } from '../utils/auth';
 
 export default function SignUp() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
+  const requestedNext = searchParams.get('next') || '/explore';
+  const nextPath = requestedNext.startsWith('/') && !requestedNext.startsWith('//')
+    ? requestedNext
+    : '/explore';
 
   async function handleNusSignIn() {
     setStatus('submitting');
     setMessage('');
 
     try {
-      await signInWithNus();
+      await signInWithNus(nextPath);
     } catch (error) {
       setStatus('idle');
       setMessage(error.message);
@@ -30,9 +35,14 @@ export default function SignUp() {
     setMessage('');
 
     try {
-      const data = await signUpWithEmail({ fullName, email, password });
+      const data = await signUpWithEmail({
+        fullName,
+        email,
+        password,
+        redirectPath: nextPath,
+      });
       if (data.session) {
-        navigate('/explore');
+        navigate(nextPath);
         return;
       }
 
@@ -185,7 +195,7 @@ export default function SignUp() {
         </form>
 
         <p style={{ textAlign: 'center', fontSize: '13px', color: '#9a9a8a' }}>
-          Already have an account? <Link to="/login" style={{ color: '#C94F1A', fontWeight: 500, textDecoration: 'none' }}>Log in</Link>
+          Already have an account? <Link to={`/login?next=${encodeURIComponent(nextPath)}`} style={{ color: '#C94F1A', fontWeight: 500, textDecoration: 'none' }}>Log in</Link>
         </p>
 
       </div>

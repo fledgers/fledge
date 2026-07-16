@@ -2145,6 +2145,7 @@ export function parseTextToOpportunityCandidate({
     listing_expires_at: listingExpiresAt,
     visibility: visibilityDecision.visibility,
     owner_user_id: visibilityDecision.ownerUserId,
+    mailbox_owner_user_id: sourceType === "outlook_email" ? ownerUserId : null,
   };
   const dedupeKey = scopeOpportunityDedupeKey(
     buildOpportunityDedupeKey(opportunity),
@@ -2199,6 +2200,7 @@ export function parseTextToOpportunityCandidate({
 
 export function parseEmailToOpportunityCandidate(email, options = {}) {
   const text = getEmailText(email);
+  const messageIdentity = email.internetMessageId || email.id || null;
   const htmlApplicationUrl =
     email.body?.contentType?.toLowerCase() === "html"
       ? extractApplicationUrlFromHtml(email.body.content)
@@ -2206,8 +2208,10 @@ export function parseEmailToOpportunityCandidate(email, options = {}) {
 
   return parseTextToOpportunityCandidate({
     sourceType: "outlook_email",
-    sourceId: email.internetMessageId || email.id || null,
-    sourceUrl: email.webLink || extractFirstUrl(text),
+    sourceId: messageIdentity && options.sourceIdentityPrefix
+      ? `${options.sourceIdentityPrefix}:${messageIdentity}`
+      : messageIdentity,
+    sourceUrl: htmlApplicationUrl || extractFirstUrl(text) || email.webLink,
     rawTitle: email.subject || "",
     rawSender: email.from?.emailAddress?.address || "",
     receivedAt: email.receivedDateTime || null,

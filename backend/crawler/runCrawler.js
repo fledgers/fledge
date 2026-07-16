@@ -1,15 +1,19 @@
 import { pathToFileURL } from "node:url";
-import { loadLocalEnv, getRequiredEnv } from "./env.js";
+import { loadLocalEnv } from "./env.js";
 import {
   crawlerSources,
   OUTLOOK_SEARCH_KEYWORDS,
   SOURCE_PRIORITIES,
 } from "./sources.js";
 import {
-  getAccessTokenFromRefreshToken,
   listRecentMessages,
+  refreshOutlookAccessToken,
   searchMessages,
 } from "./outlookClient.js";
+import {
+  loadCrawlerOutlookConnections,
+  recordOutlookCrawlResult,
+} from "./outlookConnections.js";
 import { fetchPublicWebDocuments } from "./publicWebClient.js";
 import {
   discoverPublicWebDocuments,
@@ -114,9 +118,9 @@ export function compareCandidates(a, b) {
   return String(a.raw_subject).localeCompare(String(b.raw_subject));
 }
 
-async function getOutlookMessages() {
-  const refreshToken = getRequiredEnv("OUTLOOK_REFRESH_TOKEN");
-  const accessToken = await getAccessTokenFromRefreshToken(refreshToken);
+async function getOutlookMessages(refreshToken) {
+  const tokenResult = await refreshOutlookAccessToken(refreshToken);
+  const accessToken = tokenResult.accessToken;
   const messagesById = new Map();
 
   const recentMessages = await listRecentMessages(accessToken, { top: 50 });
@@ -131,7 +135,10 @@ async function getOutlookMessages() {
     }
   }
 
-  return [...messagesById.values()];
+  return {
+    messages: [...messagesById.values()],
+    refreshToken: tokenResult.refreshToken,
+  };
 }
 
 function isNusWebSource(source) {
@@ -264,31 +271,54 @@ async function main() {
     if (useOutlook || useAllSources) {
       const outlookSource = getSourceByType("outlook_mailbox");
 
-      try {
-        const emails = await getOutlookMessages();
-        scannedCount += emails.length;
-        candidates.push(
-          ...parseEmailsToOpportunityCandidates(emails, {
-            schoolSlug: "nus",
-            sourcePriority: outlookSource?.sourcePriority,
-            ownerUserId: process.env.OUTLOOK_OWNER_USER_ID || null,
-          })
-        );
+      const connections = await loadCrawlerOutlookConnections({ saveToSupabase });
+
+      if (connections.length === 0) {
         sourceResults.push({
           source_id: outlookSource?.id || "outlook_mailbox",
           source_type: "outlook_mailbox",
-          status: "completed",
-          document_count: emails.length,
-        });
-      } catch (error) {
-        sourceResults.push({
-          source_id: outlookSource?.id || "outlook_mailbox",
-          source_type: "outlook_mailbox",
-          status: "failed",
+          status: "skipped",
           document_count: 0,
-          error: error.message,
+          error: "No students have connected Outlook.",
         });
-        throw error;
+      }
+
+      for (const connection of connections) {
+        const sourceId = `${outlookSource?.id || "outlook_mailbox"}:${connection.user_id || "legacy"}`;
+
+        try {
+          const result = await getOutlookMessages(connection.refresh_token);
+          scannedCount += result.messages.length;
+          candidates.push(
+            ...parseEmailsToOpportunityCandidates(result.messages, {
+              schoolSlug: "nus",
+              sourcePriority: outlookSource?.sourcePriority,
+              ownerUserId: connection.user_id,
+              sourceIdentityPrefix: connection.user_id || "legacy",
+            })
+          );
+          await recordOutlookCrawlResult({
+            connection,
+            refreshToken: result.refreshToken,
+          });
+          sourceResults.push({
+            source_id: sourceId,
+            source_type: "outlook_mailbox",
+            status: "completed",
+            document_count: result.messages.length,
+          });
+        } catch (error) {
+          await recordOutlookCrawlResult({ connection, error }).catch(recordError => {
+            console.warn(`Could not record Outlook crawl failure: ${recordError.message}`);
+          });
+          sourceResults.push({
+            source_id: sourceId,
+            source_type: "outlook_mailbox",
+            status: "failed",
+            document_count: 0,
+            error: error.message,
+          });
+        }
       }
     }
 
