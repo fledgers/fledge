@@ -276,6 +276,55 @@ test("parses an NUS partner winter-programme PDF as a specific opportunity", () 
   assert.ok(candidate.review_reasons.includes("missing_source_published_at"));
 });
 
+test("parses a STEER PDF as one specific trip with its own details URL", () => {
+  const sourceUrl =
+    "https://nus.edu.sg/gro/docs/default-source/prog/steer/steer-mumbai-and-agra.pdf";
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: `nus-gro-steer:${sourceUrl}`,
+    school: "nus",
+    sourceId: "nus-gro-steer",
+    sourceName:
+      "NUS Global Relations - Study Trips for Engagement and EnRichment",
+    url: sourceUrl,
+    title: "STEER India: Mumbai & Agra",
+    summary: "",
+    text: `
+      Study Trips for Engagement and EnRichment (STEER)
+      STEER India: Mumbai & Agra
+      Programme Location: Mumbai and Agra, India
+      Programme Dates: 22 July to 1 August 2026
+      Application Deadline: 2 July 2026 (Extended)
+      All participants must be full-time NUS undergraduate students, be at
+      least 18 years old, and participate in the whole programme.
+      Application Process: Apply via EduRec Global Education, Setup ID 03942.
+    `,
+    documentFormat: "pdf",
+    programmeDetails: true,
+    defaultCategory: "exchange",
+    minScore: 3,
+    sourcePriority: 1,
+    sourceTrustBoost: 3,
+    requiresNusStudentEligibility: true,
+    trustedForNusStudents: true,
+    fetchedAt: "2026-06-20T00:00:00.000Z",
+  });
+
+  assert.ok(candidate);
+  assert.equal(candidate.opportunity.title, "STEER India: Mumbai & Agra");
+  assert.equal(
+    candidate.opportunity.organisation,
+    "NUS Global Relations - Study Trips for Engagement and EnRichment"
+  );
+  assert.equal(candidate.opportunity.location, "Mumbai and Agra, India");
+  assert.equal(candidate.opportunity.deadline, "2026-07-02T00:00:00.000Z");
+  assert.equal(candidate.opportunity.deadline_source, "nus");
+  assert.equal(candidate.opportunity.source_url, sourceUrl);
+  assert.equal(candidate.opportunity.application_url, null);
+  assert.match(candidate.opportunity.description, /Mumbai and Agra, India/);
+  assert.doesNotMatch(candidate.opportunity.description, /Applying for Summer/i);
+  assert.match(candidate.opportunity.eligibility, /full-time NUS undergraduate/i);
+});
+
 test("converts an explicitly zoned deadline into a UTC instant", () => {
   const candidate = parseWebDocumentToOpportunityCandidate({
     id: "external-programme",

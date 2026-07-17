@@ -149,8 +149,17 @@ function extractApplicationUrlFromHtml(html, baseUrl) {
   while ((match = anchorPattern.exec(html)) !== null) {
     const label = stripHtml(match[2]).toLowerCase();
     const href = decodeHtmlEntities(match[1]);
+    const linkText = `${label} ${href}`.toLowerCase();
 
-    if (!/\b(?:apply|application|register|registration)\b/.test(`${label} ${href}`)) {
+    if (
+      /\b(?:applying for|before applying|after applying|application guide)\b/.test(
+        linkText
+      )
+    ) {
+      continue;
+    }
+
+    if (!/\b(?:apply|application|register|registration)\b/.test(linkText)) {
       continue;
     }
 
@@ -286,9 +295,12 @@ async function fetchHtml(url, source) {
   }
 
   const html = await response.text();
-  const text = stripHtml(html).slice(0, 500).toLowerCase();
+  const protectionResponse = html.toLowerCase();
 
-  if (text.includes("incapsula incident id") || text.includes("request unsuccessful")) {
+  if (
+    protectionResponse.includes("incapsula incident id") ||
+    protectionResponse.includes("request unsuccessful")
+  ) {
     throw new Error(`Blocked by website protection: ${url}`);
   }
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fetchPublicWebSource } from "./publicWebClient.js";
+import { crawlerSources } from "./sources.js";
 
 test("uses a canonical URL for repeated web-page identities", async () => {
   const originalFetch = globalThis.fetch;
@@ -68,6 +69,40 @@ test("retries a temporary web failure before skipping the source", async () => {
   }
 });
 
+test("reports an Incapsula response as website protection", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async () =>
+    new Response(
+      `
+        <html>
+          <body>
+            <iframe src="/_Incapsula_Resource?${"x".repeat(700)}">
+              Request unsuccessful. Incapsula incident ID: 123456
+            </iframe>
+          </body>
+        </html>
+      `,
+      { status: 200, headers: { "Content-Type": "text/html" } }
+    );
+
+  try {
+    await assert.rejects(
+      fetchPublicWebSource({
+        id: "protected-source",
+        name: "Protected Source",
+        school: "nus",
+        url: "https://example.edu/opportunity",
+        allowedHosts: ["example.edu"],
+        maxLinkedPages: 0,
+      }),
+      /Blocked by website protection/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("discovers a specific opportunity through a relevant depth-two link", async () => {
   const originalFetch = globalThis.fetch;
   const pages = new Map([
@@ -111,4 +146,51 @@ test("discovers a specific opportunity through a relevant depth-two link", async
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("does not treat programme-guide navigation as an application link", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async () =>
+    new Response(
+      `
+        <html>
+          <head><title>STEER</title></head>
+          <body>
+            <nav>
+              <a href="/gro/global-programmes/summer-and-winter-programmes/i-sp-application-guide">
+                Applying for Summer and Winter Programmes
+              </a>
+            </nav>
+            <h1>Study Trips For Engagement & EnRichment (STEER)</h1>
+          </body>
+        </html>
+      `,
+      { status: 200, headers: { "Content-Type": "text/html" } }
+    );
+
+  try {
+    const documents = await fetchPublicWebSource({
+      id: "navigation-link-source",
+      name: "Navigation Link Source",
+      school: "nus",
+      url: "https://example.edu/steer",
+      allowedHosts: ["example.edu"],
+      maxLinkedPages: 0,
+    });
+
+    assert.equal(documents.length, 1);
+    assert.equal(documents[0].applicationUrl, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("configures the STEER landing page as a specific-PDF directory", () => {
+  const source = crawlerSources.find(({ id }) => id === "nus-gro-steer");
+
+  assert.ok(source);
+  assert.equal(source.createRootDocument, false);
+  assert.deepEqual(source.linkedDocumentTypes, ["pdf"]);
+  assert.equal(source.programmeDetails, true);
 });

@@ -1870,6 +1870,9 @@ function extractRequirementSnippets(text) {
     /NUS students should apply[^.]{0,260}\.?/i,
     /You must apply concurrently[^.]{0,260}\.?/i,
     /The programme period overlaps[^.]{0,260}\.?/i,
+    /All participants must[^.]{0,260}\.?/i,
+    /Applicants must[^.]{0,260}\.?/i,
+    /Participants must[^.]{0,260}\.?/i,
     /Students must[^.]{0,260}\.?/i,
   ];
   const snippets = [];
@@ -1906,7 +1909,8 @@ function getProgrammeDetailOverrides(document, fallbackEligibility) {
     "Courses Available In",
     "Course Information",
   ]);
-  const organisation = extractHostOrganisation(document.title, document.text);
+  const organisation =
+    extractHostOrganisation(document.title, document.text) || document.sourceName;
   const requirements = extractRequirementSnippets(document.text);
   const deliveryMode = /information on this page is for (?:the )?(?:on-site|onsite|in-person)/i.test(
     document.text

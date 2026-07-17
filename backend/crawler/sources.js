@@ -240,8 +240,11 @@ const crawlerSourceConfig = [
     targetAudience: "nus_students",
     trustedForNusStudents: true,
     minScore: 3,
-    maxDepth: 2,
-    maxLinkedPages: 5,
+    // The STEER page is a directory. Each linked PDF describes one actual trip.
+    createRootDocument: false,
+    linkedDocumentTypes: ["pdf"],
+    programmeDetails: true,
+    maxLinkedPages: 20,
   },
   {
     id: "nus-enterprise-noc",
