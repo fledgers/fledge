@@ -47,7 +47,7 @@ export async function signInWithNus(redirectPath = '/explore') {
     provider: 'azure',
     options: {
       redirectTo: `${window.location.origin}${redirectPath}`,
-      scopes: 'email openid profile',
+      scopes: 'email',
     },
   });
 
