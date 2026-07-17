@@ -1,6 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import OpportunityDataState from './OpportunityDataState';
-import { getBrowserOutlookDecision } from '../data/outlookService';
 import { useOpportunities } from '../hooks/useOpportunities';
 
 export default function OutlookGate({ children }) {
@@ -23,11 +22,11 @@ export default function OutlookGate({ children }) {
     );
   }
 
-  const decision = user
-    ? profile?.outlook_onboarding_status || 'not_asked'
-    : getBrowserOutlookDecision() || 'not_asked';
+  if (!user) {
+    return children;
+  }
 
-  if (decision === 'not_asked') {
+  if ((profile?.outlook_onboarding_status || 'not_asked') === 'not_asked') {
     return (
       <Navigate
         replace

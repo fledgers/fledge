@@ -33,7 +33,7 @@ export default function App() {
           <Route path="/for-you" element={<OutlookGate><ForYou /></OutlookGate>} />
           <Route path="/signup" element={<SignUp />} />
           <Route path="/login" element={<LogIn />} />
-          <Route path="/profile" element={<Profile />} />
+          <Route path="/profile" element={<OutlookGate><Profile /></OutlookGate>} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/outlook" element={<Outlook />} />
         </Routes>

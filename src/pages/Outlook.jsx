@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  Navigate,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from 'react-router-dom';
 import { Mail, ShieldCheck, Unplug } from 'lucide-react';
 import Navbar from '../components/Navbar';
+import OpportunityDataState from '../components/OpportunityDataState';
 import {
   beginOutlookAuthorization,
   disconnectOutlook,
@@ -23,7 +29,14 @@ export default function Outlook() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { profile, refresh, user, updateOutlookPreference } = useOpportunities();
+  const {
+    error,
+    isLoading,
+    profile,
+    refresh,
+    user,
+    updateOutlookPreference,
+  } = useOpportunities();
   const [connection, setConnection] = useState(null);
   const [loadingStatus, setLoadingStatus] = useState(Boolean(user));
   const [message, setMessage] = useState('');
@@ -117,6 +130,32 @@ export default function Outlook() {
       : callbackStatus === 'error'
         ? 'Microsoft could not complete the Outlook connection. Try again or continue without it.'
         : '';
+
+  if (isLoading) {
+    return (
+      <div style={statePageStyle}>
+        <OpportunityDataState isLoading onRetry={refresh} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={statePageStyle}>
+        <OpportunityDataState error={error} onRetry={refresh} />
+      </div>
+    );
+  }
+
+  if (!user) {
+    const nextPath = `${location.pathname}${location.search}`;
+    return (
+      <Navigate
+        replace
+        to={`/login?next=${encodeURIComponent(nextPath)}`}
+      />
+    );
+  }
 
   return (
     <div style={pageStyle}>
@@ -229,7 +268,7 @@ export default function Outlook() {
                 style={primaryButtonStyle}
                 type="button"
               >
-                {user ? 'Connect Outlook' : 'Sign in to connect Outlook'}
+                Connect Outlook
               </button>
               <button
                 disabled={working}
@@ -256,6 +295,13 @@ const pageStyle = {
   color: '#1A1A18',
   fontFamily: "'DM Sans', sans-serif",
   minHeight: '100vh',
+};
+
+const statePageStyle = {
+  ...pageStyle,
+  alignItems: 'center',
+  display: 'flex',
+  justifyContent: 'center',
 };
 
 const mainStyle = {

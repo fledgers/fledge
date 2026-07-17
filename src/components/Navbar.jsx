@@ -17,7 +17,7 @@ export default function Navbar({ activePage }) {
     { label: 'Explore', path: '/explore' },
     { label: 'Saved', path: '/saved' },
     { label: 'For You', path: '/for-you' },
-    { label: 'Outlook', path: '/outlook' },
+    ...(user ? [{ label: 'Outlook', path: '/outlook' }] : []),
   ];
 
   async function handleSignOut() {
