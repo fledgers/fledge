@@ -5,6 +5,7 @@ import {
   getOpportunityVisibilityDecision,
   scopeOpportunityDedupeKey,
 } from "./opportunityPolicy.js";
+import { resolveOpportunityUrls } from "./urlUtils.js";
 
 const CATEGORY_RULES = [
   {
@@ -2058,8 +2059,14 @@ export function parseTextToOpportunityCandidate({
   const deadlineDetails = extractDeadlineDetails(text);
   const resolvedTitle = cleanTitle(title);
   const resolvedOrganisation = organisationOverride || organisation;
-  const resolvedSourceUrl = sourceUrl || extractFirstUrl(text);
-  const applicationUrl = applicationUrlOverride || extractApplicationUrl(text);
+  const resolvedUrls = resolveOpportunityUrls({
+    applicationUrl: applicationUrlOverride || extractApplicationUrl(text),
+    sourceUrl: sourceUrl || extractFirstUrl(text),
+    text,
+    title: resolvedTitle,
+  });
+  const resolvedSourceUrl = resolvedUrls.sourceUrl;
+  const applicationUrl = resolvedUrls.applicationUrl;
   const deadline = deadlineOverride ?? deadlineDetails.deadline;
   const deadlineSource = determineDeadlineSource({
     deadline,
@@ -2215,7 +2222,7 @@ export function parseEmailToOpportunityCandidate(email, options = {}) {
     sourceId: messageIdentity && options.sourceIdentityPrefix
       ? `${options.sourceIdentityPrefix}:${messageIdentity}`
       : messageIdentity,
-    sourceUrl: htmlApplicationUrl || extractFirstUrl(text) || email.webLink,
+    sourceUrl: extractFirstUrl(text),
     rawTitle: email.subject || "",
     rawSender: email.from?.emailAddress?.address || "",
     receivedAt: email.receivedDateTime || null,
@@ -2251,7 +2258,7 @@ export function parseWebDocumentToOpportunityCandidate(document) {
   return parseTextToOpportunityCandidate({
     sourceType: "public_web",
     sourceId: document.id,
-    sourceUrl: document.url,
+    sourceUrl: document.detailsUrl || document.url,
     rawTitle: document.title,
     rawSender: document.sourceName,
     receivedAt: document.fetchedAt,

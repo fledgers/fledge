@@ -1,4 +1,8 @@
-import { canonicalizeUrl } from "./urlUtils.js";
+import {
+  canonicalizeUrl,
+  isLikelyApplicationUrl,
+  resolveOpportunityUrls,
+} from "./urlUtils.js";
 
 const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
 const DEFAULT_MAX_RESULTS_PER_QUERY = 8;
@@ -27,12 +31,6 @@ function getHostname(url) {
   return new URL(url).hostname.replace(/^www\./, "");
 }
 
-function isLikelyApplicationUrl(url, title = "") {
-  return /\b(?:apply|application|register|registration|sign-?up)\b/i.test(
-    `${url} ${title}`
-  );
-}
-
 function createDiscoveryDocument(result, query, fetchedAt) {
   const url = canonicalizeUrl(result.url);
   if (!url || !isHttpUrl(url)) return null;
@@ -40,6 +38,12 @@ function createDiscoveryDocument(result, query, fetchedAt) {
   const title = String(result.title || getHostname(url)).trim();
   const summary = String(result.content || "").trim();
   const rawContent = String(result.raw_content || "").trim();
+  const resolvedUrls = resolveOpportunityUrls({
+    applicationUrl: isLikelyApplicationUrl(url, title) ? url : null,
+    sourceUrl: url,
+    text: `${rawContent}\n${summary}`,
+    title,
+  });
 
   return {
     id: `web-discovery:${url}`,
@@ -47,7 +51,8 @@ function createDiscoveryDocument(result, query, fetchedAt) {
     sourceId: "broad-web-discovery",
     sourceName: getHostname(url),
     url,
-    applicationUrl: isLikelyApplicationUrl(url, title) ? url : null,
+    detailsUrl: resolvedUrls.sourceUrl,
+    applicationUrl: resolvedUrls.applicationUrl,
     publishedAt: null,
     title,
     summary,

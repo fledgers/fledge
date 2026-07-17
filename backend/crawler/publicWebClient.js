@@ -1,5 +1,5 @@
 import { PDFParse } from "pdf-parse";
-import { canonicalizeUrl } from "./urlUtils.js";
+import { canonicalizeUrl, resolveOpportunityUrls } from "./urlUtils.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -172,6 +172,19 @@ function extractApplicationUrlFromHtml(html, baseUrl) {
   }
 
   return null;
+}
+
+function extractLinkedUrlsFromHtml(html, baseUrl) {
+  const urls = [];
+  const anchorPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi;
+  let match;
+
+  while ((match = anchorPattern.exec(html)) !== null) {
+    const url = canonicalizeUrl(decodeHtmlEntities(match[1]), baseUrl);
+    if (url) urls.push(url);
+  }
+
+  return urls;
 }
 
 function normalizeUrl(url) {
@@ -350,14 +363,23 @@ function createWebDocument(source, url, html, fallbackTitle) {
   const title = extractTitle(html, fallbackTitle);
   const text = stripHtml(html);
   const summary = extractMetaDescription(html) || text.slice(0, 700);
+  const normalizedUrl = normalizeUrl(url);
+  const resolvedUrls = resolveOpportunityUrls({
+    applicationUrl: extractApplicationUrlFromHtml(html, url),
+    candidateUrls: extractLinkedUrlsFromHtml(html, url),
+    sourceUrl: normalizedUrl,
+    text: html,
+    title,
+  });
 
   return {
-    id: `${source.id}:${normalizeUrl(url)}`,
+    id: `${source.id}:${normalizedUrl}`,
     school: source.school,
     sourceId: source.id,
     sourceName: source.name,
-    url: normalizeUrl(url),
-    applicationUrl: extractApplicationUrlFromHtml(html, url),
+    url: normalizedUrl,
+    detailsUrl: resolvedUrls.sourceUrl,
+    applicationUrl: resolvedUrls.applicationUrl,
     publishedAt: extractPublishedAt(html),
     title,
     summary,

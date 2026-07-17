@@ -138,7 +138,37 @@ test("scopes Outlook source identities to the consenting mailbox", () => {
     candidate.opportunity.mailbox_owner_user_id,
     "11111111-1111-4111-8111-111111111111"
   );
-  assert.equal(candidate.source_url, "https://example.edu/apply");
+  assert.equal(candidate.source_url, null);
+  assert.equal(candidate.application_url, "https://example.edu/apply");
+});
+
+test("separates Outlook information and application links", () => {
+  const candidate = parseEmailToOpportunityCandidate(
+    {
+      id: "message-with-two-links",
+      subject: "Applications open for Student Innovation Challenge",
+      from: { emailAddress: { address: "office@nus.edu.sg" } },
+      receivedDateTime: "2026-07-15T08:00:00Z",
+      body: {
+        contentType: "text",
+        content: `
+          Open to all NUS students. Deadline: 30 August 2026.
+          Read more at https://example.edu/student-innovation-challenge.
+          Apply at https://forms.gle/example.
+        `,
+      },
+    },
+    {
+      ownerUserId: "11111111-1111-4111-8111-111111111111",
+      sourcePriority: 0,
+    }
+  );
+
+  assert.equal(
+    candidate.source_url,
+    "https://example.edu/student-innovation-challenge"
+  );
+  assert.equal(candidate.application_url, "https://forms.gle/example");
 });
 
 test("keeps a major-restricted Outlook opportunity private to the mailbox owner", () => {

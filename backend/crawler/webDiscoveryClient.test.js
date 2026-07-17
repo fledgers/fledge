@@ -43,10 +43,44 @@ test("turns search results into deduplicated external web documents", async () =
 
   assert.equal(documents.length, 1);
   assert.equal(documents[0].url, "https://example.org/apply");
+  assert.equal(documents[0].detailsUrl, null);
   assert.equal(documents[0].applicationUrl, "https://example.org/apply");
   assert.equal(documents[0].sourcePriority, 4);
   assert.equal(documents[0].discoveryQuery, "second query");
   assert.equal(queryResults.length, 2);
+});
+
+test("uses an information URL from a direct form search result", async () => {
+  const fetchImpl = async () =>
+    new Response(
+      JSON.stringify({
+        results: [
+          {
+            title: "Application for Student Scholarship",
+            url: "https://form.gov.sg/example",
+            content:
+              "For more information, visit https://example.gov.sg/scholarships/student-award",
+            raw_content:
+              "Apply using this form. Official details: https://example.gov.sg/scholarships/student-award",
+            score: 0.9,
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+  const documents = await discoverPublicWebDocuments({
+    apiKey: "tvly-test",
+    fetchImpl,
+    queries: ["student scholarship"],
+  });
+
+  assert.equal(documents[0].url, "https://form.gov.sg/example");
+  assert.equal(
+    documents[0].detailsUrl,
+    "https://example.gov.sg/scholarships/student-award"
+  );
+  assert.equal(documents[0].applicationUrl, "https://form.gov.sg/example");
 });
 
 test("records a failed query and continues searching", async () => {
