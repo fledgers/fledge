@@ -63,7 +63,21 @@ const PUBLIC_WEB_EXCLUDED_PATH_PARTS = [
   "/past-events",
   "/press-release",
   "/press-releases",
+  "/menu-templates/",
   "/who-we-are/awards-and-accolades",
+];
+
+const PUBLIC_WEB_EXCLUDED_EXACT_PATHS = [
+  "/education-programmes/nus-overseas-colleges/apply/application-info",
+  "/education-programmes/nus-overseas-colleges/apply/apply-now",
+  "/education-programmes/nus-overseas-colleges/apply/awards-and-scholarships",
+  "/education-programmes/nus-overseas-colleges/apply/faq",
+  "/education-programmes/nus-overseas-colleges/noc-story",
+  "/gro/global-programmes/student-exchange",
+  "/gro/global-programmes/student-exchange/outgoing-exchangers",
+  "/gro/global-programmes/student-exchange/partner-universities",
+  "/gro/global-programmes/student-exchange/returning-exchangers",
+  "/students/jobs-internships/employment-opportunities",
 ];
 
 const PUBLIC_WEB_EXCLUDED_FILE_EXTENSIONS = [
@@ -207,6 +221,7 @@ function isAllowedHost(url, allowedHosts = []) {
 function isExcludedCrawlerUrl(url, { allowPdf = false } = {}) {
   const { pathname } = new URL(url);
   const normalizedPath = pathname.toLowerCase();
+  const normalizedExactPath = normalizedPath.replace(/\/+$/, "") || "/";
 
   if (isPdfUrl(url) && !allowPdf) return true;
 
@@ -218,8 +233,11 @@ function isExcludedCrawlerUrl(url, { allowPdf = false } = {}) {
     return true;
   }
 
-  return PUBLIC_WEB_EXCLUDED_PATH_PARTS.some((pathPart) =>
-    normalizedPath.includes(pathPart)
+  return (
+    PUBLIC_WEB_EXCLUDED_EXACT_PATHS.includes(normalizedExactPath) ||
+    PUBLIC_WEB_EXCLUDED_PATH_PARTS.some((pathPart) =>
+      normalizedPath.includes(pathPart)
+    )
   );
 }
 

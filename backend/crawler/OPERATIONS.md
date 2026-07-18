@@ -21,6 +21,11 @@ Data API schema:
 notify pgrst, 'reload schema';
 ```
 
+Phase 14 removes the old generic STEER directory record. Phase 15 removes
+previously published FAQ, template, application-process, employment-directory,
+and exchange-directory records. Run both cleanup migrations once after Phase
+13. Future crawler runs reject these support pages before candidate creation.
+
 ## Local commands
 
 ```bash

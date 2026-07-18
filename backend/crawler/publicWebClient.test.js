@@ -186,6 +186,75 @@ test("does not treat programme-guide navigation as an application link", async (
   }
 });
 
+test("skips support pages but still crawls a specific programme page", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestedUrls = [];
+  const pages = new Map([
+    [
+      "https://example.edu/noc",
+      `
+        <h1>NUS Overseas Colleges</h1>
+        <a href="/education-programmes/nus-overseas-colleges/apply/faq/">
+          NOC FAQ
+        </a>
+        <a href="/menu-templates/nus-overseas-colleges-template/">
+          NOC template
+        </a>
+        <a href="/programmes/noc-silicon-valley-2027">
+          NOC Silicon Valley 2027 applications
+        </a>
+      `,
+    ],
+    [
+      "https://example.edu/programmes/noc-silicon-valley-2027",
+      "<h1>NOC Silicon Valley 2027</h1><p>Applications open to students.</p>",
+    ],
+  ]);
+
+  globalThis.fetch = async (url) => {
+    requestedUrls.push(String(url));
+    return new Response(pages.get(String(url)) || "Not found", {
+      status: pages.has(String(url)) ? 200 : 404,
+      headers: { "Content-Type": "text/html" },
+    });
+  };
+
+  try {
+    const documents = await fetchPublicWebSource({
+      id: "support-page-source",
+      name: "Support Page Source",
+      school: "nus",
+      url: "https://example.edu/noc",
+      allowedHosts: ["example.edu"],
+      maxDepth: 1,
+      maxLinkedPages: 5,
+      requestDelayMs: 0,
+    });
+
+    assert.deepEqual(
+      documents.map(({ url }) => url),
+      [
+        "https://example.edu/noc",
+        "https://example.edu/programmes/noc-silicon-valley-2027",
+      ]
+    );
+    assert.equal(
+      requestedUrls.includes(
+        "https://example.edu/education-programmes/nus-overseas-colleges/apply/faq"
+      ),
+      false
+    );
+    assert.equal(
+      requestedUrls.includes(
+        "https://example.edu/menu-templates/nus-overseas-colleges-template"
+      ),
+      false
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("configures the STEER landing page as a specific-PDF directory", () => {
   const source = crawlerSources.find(({ id }) => id === "nus-gro-steer");
 
@@ -193,4 +262,15 @@ test("configures the STEER landing page as a specific-PDF directory", () => {
   assert.equal(source.createRootDocument, false);
   assert.deepEqual(source.linkedDocumentTypes, ["pdf"]);
   assert.equal(source.programmeDetails, true);
+});
+
+test("does not crawl the generic NOC application-information page as a source", () => {
+  const source = crawlerSources.find(
+    ({ id }) => id === "nus-enterprise-noc-application-info"
+  );
+
+  assert.ok(source);
+  assert.equal(source.enabled, false);
+  assert.equal(source.createRootDocument, false);
+  assert.equal(source.maxLinkedPages, 0);
 });

@@ -268,14 +268,17 @@ const crawlerSourceConfig = [
     type: "public_web",
     name: "NUS Enterprise - NOC Application Info",
     url: "https://enterprise.nus.edu.sg/education-programmes/nus-overseas-colleges/apply/application-info/",
-    enabled: true,
+    // This is an application-process support page, not an opportunity record.
+    // The main NOC source remains enabled and can publish the actual programme.
+    enabled: false,
     allowedHosts: NUS_HOSTS,
     defaultCategory: "entrepreneurship",
     sourceTrustBoost: 3,
     targetAudience: "nus_students",
     trustedForNusStudents: true,
     minScore: 3,
-    maxLinkedPages: 8,
+    createRootDocument: false,
+    maxLinkedPages: 0,
   },
   {
     id: "nus-enterprise-events-funding",

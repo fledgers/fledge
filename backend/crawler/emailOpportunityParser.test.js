@@ -466,6 +466,69 @@ test("rejects a general web directory with no deadline or application route", ()
   assert.equal(candidate, null);
 });
 
+test("rejects support and directory pages even when navigation contains application data", () => {
+  const pages = [
+    ["FAQ - NUS Enterprise", "https://enterprise.nus.edu.sg/education-programmes/nus-overseas-colleges/apply/faq/"],
+    ["NUS Overseas Colleges Template - NUS Enterprise", "https://enterprise.nus.edu.sg/menu-templates/nus-overseas-colleges-template/"],
+    ["Application Info - NUS Enterprise", "https://enterprise.nus.edu.sg/education-programmes/nus-overseas-colleges/apply/application-info/"],
+    ["Partner Universities For Exchange", "https://www.nus.edu.sg/gro/global-programmes/student-exchange/partner-universities"],
+    ["Returning Exchange Students", "https://www.nus.edu.sg/gro/global-programmes/student-exchange/returning-exchangers"],
+    ["Student Exchange Programme", "https://www.nus.edu.sg/gro/global-programmes/student-exchange"],
+  ];
+
+  for (const [title, url] of pages) {
+    const candidate = parseWebDocumentToOpportunityCandidate({
+      id: `informational:${url}`,
+      school: "nus",
+      sourceId: "informational",
+      sourceName: "NUS",
+      url,
+      title,
+      summary: "Information for NUS students.",
+      text: `
+        Information for NUS students.
+        Navigation: applications are open until 30 August 2026.
+        Apply at https://example.edu/apply.
+      `,
+      defaultCategory: "exchange",
+      minScore: 1,
+      sourcePriority: 1,
+      sourceTrustBoost: 3,
+      trustedForNusStudents: true,
+      fetchedAt: "2026-07-18T00:00:00.000Z",
+    });
+
+    assert.equal(candidate, null, `${title} should not become an opportunity`);
+  }
+});
+
+test("keeps a specific NOC intake while rejecting NOC support pages", () => {
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: "nus-noc-2027-intake",
+    school: "nus",
+    sourceId: "nus-enterprise-noc",
+    sourceName: "NUS Enterprise",
+    url: "https://enterprise.nus.edu.sg/education-programmes/nus-overseas-colleges/",
+    title: "NUS Overseas Colleges 2027 Intake",
+    summary: "Applications are open for the 2027 NOC intake.",
+    text: `
+      Applications are open to all NUS students for the 2027 NOC intake.
+      All majors and all years are welcome.
+      Application deadline: 30 August 2026.
+      Apply at https://enterprise.nus.edu.sg/noc-2027-application.
+    `,
+    defaultCategory: "entrepreneurship",
+    minScore: 1,
+    sourcePriority: 1,
+    sourceTrustBoost: 3,
+    trustedForNusStudents: true,
+    fetchedAt: "2026-07-18T00:00:00.000Z",
+  });
+
+  assert.ok(candidate);
+  assert.equal(candidate.opportunity.title, "NUS Overseas Colleges 2027 Intake");
+});
+
 test("keeps an undated application for a fixed 60-day rolling window", () => {
   const candidate = parseWebDocumentToOpportunityCandidate({
     id: "rolling-student-incubator",

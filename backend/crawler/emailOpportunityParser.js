@@ -986,6 +986,37 @@ const HISTORICAL_URL_SEGMENTS = [
   "/press-releases",
 ];
 
+const INFORMATIONAL_PUBLIC_WEB_TITLE_PATTERNS = [
+  /^apply now(?:\s*[-|–—]\s*.*)?$/i,
+  /^application info(?:rmation)?(?:\s*[-|–—]\s*.*)?$/i,
+  /^awards and scholarships(?:\s*[-|–—]\s*.*)?$/i,
+  /^employment opportunities(?:\s*[-|–—]\s*.*)?$/i,
+  /^faq(?:\s*[-|–—]\s*.*)?$/i,
+  /^frequently asked questions(?:\s*[-|–—]\s*.*)?$/i,
+  /^home(?: page)?(?:\s*[-|–—]\s*.*)?$/i,
+  /^noc story(?:\s*[-|–—]\s*.*)?$/i,
+  /^outgoing exchange(?:rs| students?)(?:\s*[-|–—]\s*.*)?$/i,
+  /^partner universities(?: for exchange)?(?:\s*[-|–—]\s*.*)?$/i,
+  /^returning exchange(?:rs| students?)(?:\s*[-|–—]\s*.*)?$/i,
+  /^student exchange programme(?:\s*[-|–—]\s*.*)?$/i,
+  /\btemplate(?:\s*[-|–—]\s*.*)?$/i,
+];
+
+const INFORMATIONAL_PUBLIC_WEB_EXACT_PATHS = [
+  "/education-programmes/nus-overseas-colleges/apply/application-info",
+  "/education-programmes/nus-overseas-colleges/apply/apply-now",
+  "/education-programmes/nus-overseas-colleges/apply/awards-and-scholarships",
+  "/education-programmes/nus-overseas-colleges/apply/faq",
+  "/education-programmes/nus-overseas-colleges/noc-story",
+  "/gro/global-programmes/student-exchange",
+  "/gro/global-programmes/student-exchange/outgoing-exchangers",
+  "/gro/global-programmes/student-exchange/partner-universities",
+  "/gro/global-programmes/student-exchange/returning-exchangers",
+  "/students/jobs-internships/employment-opportunities",
+];
+
+const INFORMATIONAL_PUBLIC_WEB_PATH_PARTS = ["/menu-templates/"];
+
 function findFirstSignal(text, signals) {
   return signals.find((signal) => keywordMatches(text, signal));
 }
@@ -1167,6 +1198,34 @@ function isHistoricalPublicWebPage({
     (historicalSignal && hasPastYear) ||
     (hasPastYear && /\bawards?\b|ceremony|winners?|press|news/i.test(reviewText))
   );
+}
+
+function isInformationalPublicWebPage({ sourceUrl, title = "" }) {
+  const normalizedTitle = normalizeWhitespace(title);
+
+  if (
+    INFORMATIONAL_PUBLIC_WEB_TITLE_PATTERNS.some((pattern) =>
+      pattern.test(normalizedTitle)
+    )
+  ) {
+    return true;
+  }
+
+  if (!sourceUrl) return false;
+
+  try {
+    const normalizedPath =
+      new URL(sourceUrl).pathname.toLowerCase().replace(/\/+$/, "") || "/";
+
+    return (
+      INFORMATIONAL_PUBLIC_WEB_EXACT_PATHS.includes(normalizedPath) ||
+      INFORMATIONAL_PUBLIC_WEB_PATH_PARTS.some((pathPart) =>
+        normalizedPath.includes(pathPart)
+      )
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function assessNusStudentEligibility(text, options = {}) {
@@ -2026,6 +2085,13 @@ export function parseTextToOpportunityCandidate({
   );
 
   if (hasClosedApplicationSignal(text)) return null;
+
+  if (
+    sourceType === "public_web" &&
+    isInformationalPublicWebPage({ sourceUrl, title })
+  ) {
+    return null;
+  }
 
   if (
     sourceType === "public_web" &&
