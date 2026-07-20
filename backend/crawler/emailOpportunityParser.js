@@ -89,11 +89,23 @@ const CATEGORY_RULES = [
   },
   {
     category: "summer_programme",
-    keywords: ["summer programme", "summer program", "summer school", "summer course"],
+    keywords: [
+      "summer programme",
+      "summer program",
+      "summer school",
+      "summer course",
+      "summer session",
+    ],
   },
   {
     category: "winter_programme",
-    keywords: ["winter programme", "winter program", "winter school", "winter course"],
+    keywords: [
+      "winter programme",
+      "winter program",
+      "winter school",
+      "winter course",
+      "winter session",
+    ],
   },
   {
     category: "mentorship",

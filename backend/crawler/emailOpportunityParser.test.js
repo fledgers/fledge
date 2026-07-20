@@ -306,6 +306,38 @@ test("parses an NUS partner winter-programme PDF as a specific opportunity", () 
   assert.ok(candidate.review_reasons.includes("missing_source_published_at"));
 });
 
+test("keeps a summer session in the summer-programme category", () => {
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: "nus-gro-summer-partner-universities:waseda",
+    school: "nus",
+    sourceId: "nus-gro-summer-partner-universities",
+    sourceName: "NUS Global Relations - Summer Partner Universities",
+    url: "https://nus.edu.sg/gro/docs/waseda-summer-session.pdf",
+    title: "Waseda Summer Session",
+    summary: "",
+    text: `
+      Waseda Summer Session
+      Programme Location: Tokyo, Japan
+      Programme Dates: 13 June to 22 July 2026
+      Application Deadline: 30 April 2026
+      Scholarship and financial-aid information is available separately.
+      Open to NUS undergraduate students.
+    `,
+    documentFormat: "pdf",
+    programmeDetails: true,
+    defaultCategory: "summer_programme",
+    minScore: 3,
+    sourcePriority: 1,
+    sourceTrustBoost: 3,
+    requiresNusStudentEligibility: true,
+    trustedForNusStudents: true,
+    fetchedAt: "2026-07-20T00:00:00.000Z",
+  });
+
+  assert.ok(candidate);
+  assert.equal(candidate.opportunity.category, "summer_programme");
+});
+
 test("parses a STEER PDF as one specific trip with its own details URL", () => {
   const sourceUrl =
     "https://nus.edu.sg/gro/docs/default-source/prog/steer/steer-mumbai-and-agra.pdf";
