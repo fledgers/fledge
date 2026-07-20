@@ -940,6 +940,7 @@ const UNIVERSITY_AGE_ELIGIBILITY_PATTERNS = [
 
 const CURRENT_APPLICATION_SIGNALS = [
   "accepting applications",
+  "accepted on a rolling basis",
   "application deadline",
   "application period",
   "applications are open",
@@ -956,7 +957,23 @@ const CURRENT_APPLICATION_SIGNALS = [
   "register now",
   "registration open",
   "registrations open",
+  "rolling basis",
   "submit your application",
+  "year-round applications",
+  "year round applications",
+];
+
+// These phrases describe future or recurring intakes rather than a listing a
+// student can apply to today. They matter only when the page has no deadline.
+const FUTURE_INTAKE_OVERVIEW_SIGNALS = [
+  "applications will be announced",
+  "applications will open",
+  "keep a lookout for",
+  "keep a lookout on",
+  "opportunities are advertised annually",
+  "opportunities will be advertised",
+  "will be advertised at the beginning of",
+  "will be announced at the beginning of",
 ];
 
 const CLOSED_APPLICATION_SIGNALS = [
@@ -1161,6 +1178,14 @@ function hasCurrentApplicationSignal(text) {
 
 function hasClosedApplicationSignal(text) {
   return Boolean(findFirstSignal(text.toLowerCase(), CLOSED_APPLICATION_SIGNALS));
+}
+
+function isFutureIntakeOverview(text, deadline) {
+  if (deadline || hasCurrentApplicationSignal(text)) return false;
+
+  return Boolean(
+    findFirstSignal(text.toLowerCase(), FUTURE_INTAKE_OVERVIEW_SIGNALS)
+  );
 }
 
 function containsPastYear(text) {
@@ -2157,6 +2182,13 @@ export function parseTextToOpportunityCandidate({
   });
 
   if (!applicationUrl && !deadline) {
+    return null;
+  }
+
+  if (
+    sourceType === "public_web" &&
+    isFutureIntakeOverview(text, deadline)
+  ) {
     return null;
   }
 

@@ -498,6 +498,35 @@ test("rejects a general web directory with no deadline or application route", ()
   assert.equal(candidate, null);
 });
 
+test("rejects a future-intake programme overview with a generic application link", () => {
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: "nus-ngip-overview",
+    school: "nus",
+    sourceId: "nus-ngip",
+    sourceName: "NUS Centre for Future-ready Graduates",
+    url: "https://nus.edu.sg/cfg/students/jobs-internships/internships/ngip",
+    title:
+      "The NUS Global Internship Programme (NGIP) allows students to gain practical experience and build their skills by working in a foreign country.",
+    summary: "Harnessing global talent, connecting the possibilities.",
+    text: `
+      The NUS Global Internship Programme (NGIP) allows students to gain
+      practical experience and build their skills by working in a foreign country.
+      NGIP is open to undergraduates who wish to pursue an overseas internship.
+      Opportunities with host companies are advertised at the beginning of the
+      calendar year. Keep a lookout for NGIP opportunities on NUS TalentConnect.
+      Apply at https://nus.edu.sg/talentconnect/apply.
+    `,
+    defaultCategory: "internship",
+    minScore: 1,
+    sourcePriority: 1,
+    sourceTrustBoost: 3,
+    trustedForNusStudents: true,
+    fetchedAt: "2026-07-20T00:00:00.000Z",
+  });
+
+  assert.equal(candidate, null);
+});
+
 test("rejects support and directory pages even when navigation contains application data", () => {
   const pages = [
     ["FAQ - NUS Enterprise", "https://enterprise.nus.edu.sg/education-programmes/nus-overseas-colleges/apply/faq/"],
