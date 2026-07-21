@@ -520,7 +520,7 @@ export default function Study() {
 
         <section
           aria-live="polite"
-          className={`study-result${prepared ? ' is-ready' : ''}`}
+          className={`study-result${prepared ? ' is-ready' : ' is-disabled'}`}
           ref={resultRef}
         >
           <div className="study-result-icon">
