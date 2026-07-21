@@ -4,12 +4,16 @@ import {
   ClipboardCheck,
   FileQuestion,
   FileText,
-  Layers3,
   Sparkles,
   UploadCloud,
   X,
 } from 'lucide-react';
 import Navbar from '../components/Navbar';
+import { supabase } from '../lib/supabase';
+import {
+  extractNotesFromFiles,
+  MAX_NOTE_CHARACTERS,
+} from '../utils/noteExtraction';
 import './Study.css';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -28,12 +32,6 @@ const STUDY_FORMATS = [
     icon: FileQuestion,
     id: 'quiz',
     label: 'Quiz',
-  },
-  {
-    description: 'Review key concepts as question-and-answer cards.',
-    icon: Layers3,
-    id: 'flashcards',
-    label: 'Flashcards',
   },
   {
     description: 'Practise under exam-style conditions.',
@@ -125,35 +123,6 @@ function SettingsFields({ format, settings, updateSetting }) {
     );
   }
 
-  if (format === 'flashcards') {
-    return (
-      <div className="study-settings-grid">
-        <label className="study-field">
-          <span>Cards</span>
-          <select
-            onChange={event => updateSetting('flashcardCount', event.target.value)}
-            value={settings.flashcardCount}
-          >
-            {[10, 20, 30].map(count => (
-              <option key={count} value={count}>{count} cards</option>
-            ))}
-          </select>
-        </label>
-        <label className="study-field">
-          <span>Card focus</span>
-          <select
-            onChange={event => updateSetting('flashcardFocus', event.target.value)}
-            value={settings.flashcardFocus}
-          >
-            <option value="mixed">Mixed concepts</option>
-            <option value="definitions">Definitions</option>
-            <option value="applications">Applications and examples</option>
-          </select>
-        </label>
-      </div>
-    );
-  }
-
   return (
     <div className="study-settings-grid">
       <label className="study-field">
@@ -198,17 +167,18 @@ export default function Study() {
   const resultRef = useRef(null);
   const [files, setFiles] = useState([]);
   const [format, setFormat] = useState('summary');
+  const [generationError, setGenerationError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [notesText, setNotesText] = useState('');
-  const [prepared, setPrepared] = useState(false);
+  const [result, setResult] = useState('');
+  const [resultFormat, setResultFormat] = useState('');
   const [sourceError, setSourceError] = useState('');
   const [sourceMode, setSourceMode] = useState('upload');
   const [settings, setSettings] = useState({
     examCount: '20',
     examDifficulty: 'mixed',
     examDuration: '60',
-    flashcardCount: '20',
-    flashcardFocus: 'mixed',
     quizCount: '10',
     quizDifficulty: 'mixed',
     quizStyle: 'mixed',
@@ -220,12 +190,18 @@ export default function Study() {
     () => STUDY_FORMATS.find(item => item.id === format),
     [format]
   );
+  const generatedFormat = useMemo(
+    () => STUDY_FORMATS.find(item => item.id === resultFormat),
+    [resultFormat]
+  );
   const sourceReady = sourceMode === 'upload'
     ? files.length > 0
     : notesText.trim().length >= 30;
 
   function markDraftChanged() {
-    setPrepared(false);
+    setGenerationError('');
+    setResult('');
+    setResultFormat('');
   }
 
   function addFiles(selectedFiles) {
@@ -283,7 +259,13 @@ export default function Study() {
     markDraftChanged();
   }
 
-  function handlePrepare(event) {
+  function scrollToResult() {
+    window.setTimeout(() => {
+      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  }
+
+  async function handleGenerate(event) {
     event.preventDefault();
 
     if (!sourceReady) {
@@ -296,10 +278,65 @@ export default function Study() {
     }
 
     setSourceError('');
-    setPrepared(true);
-    window.setTimeout(() => {
-      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 0);
+    setGenerationError('');
+    setResult('');
+    setResultFormat('');
+    setIsGenerating(true);
+    scrollToResult();
+
+    try {
+      const notes = sourceMode === 'upload'
+        ? await extractNotesFromFiles(files)
+        : notesText.trim();
+
+      if (notes.length < 30) {
+        throw new Error('Add at least 30 characters of readable notes.');
+      }
+
+      if (notes.length > MAX_NOTE_CHARACTERS) {
+        throw new Error(
+          `Reduce your notes to ${MAX_NOTE_CHARACTERS.toLocaleString()} characters or fewer.`
+        );
+      }
+
+      if (!supabase) {
+        throw new Error('Study authentication is not configured for this website.');
+      }
+
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (sessionError || !accessToken) {
+        throw new Error('Your session has expired. Sign in again before using Study.');
+      }
+
+      const response = await fetch('/api/study-generate', {
+        body: JSON.stringify({ format, notes, settings }),
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Study generation failed. Try again.');
+      }
+
+      if (typeof payload.output !== 'string' || !payload.output.trim()) {
+        throw new Error('Estha returned an empty response. Try again.');
+      }
+
+      setResult(payload.output.trim());
+      setResultFormat(format);
+    } catch (error) {
+      setGenerationError(
+        error instanceof Error ? error.message : 'Study generation failed. Try again.'
+      );
+    } finally {
+      setIsGenerating(false);
+      scrollToResult();
+    }
   }
 
   return (
@@ -323,7 +360,7 @@ export default function Study() {
           </div>
         </header>
 
-        <form onSubmit={handlePrepare}>
+        <form onSubmit={handleGenerate}>
           <div className="study-workspace">
             <section className="study-panel" aria-labelledby="study-source-heading">
               <div className="study-step-heading">
@@ -465,7 +502,7 @@ export default function Study() {
                     <button
                       aria-pressed={isSelected}
                       className={isSelected ? 'is-selected' : ''}
-                      disabled={!sourceReady}
+                      disabled={!sourceReady || isGenerating}
                       key={item.id}
                       onClick={() => {
                         setFormat(item.id);
@@ -509,31 +546,51 @@ export default function Study() {
 
             <button
               className="study-primary-button"
-              disabled={!sourceReady}
+              disabled={!sourceReady || isGenerating}
               type="submit"
             >
               <Sparkles aria-hidden="true" size={17} />
-              Create {selectedFormat.label.toLowerCase()}
+              {isGenerating
+                ? `Creating ${selectedFormat.label.toLowerCase()}...`
+                : `Create ${selectedFormat.label.toLowerCase()}`}
             </button>
           </section>
         </form>
 
         <section
           aria-live="polite"
-          className={`study-result${prepared ? ' is-ready' : ' is-disabled'}`}
+          aria-busy={isGenerating}
+          className={`study-result${
+            isGenerating
+              ? ' is-loading'
+              : result
+                ? ' is-ready'
+                : generationError
+                  ? ' has-error'
+                  : ' is-disabled'
+          }`}
           ref={resultRef}
         >
           <div className="study-result-icon">
             <Sparkles aria-hidden="true" size={22} />
           </div>
-          {prepared ? (
+          {isGenerating ? (
             <div>
-              <p className="study-result-label">Request ready</p>
-              <h2>Your {selectedFormat.label.toLowerCase()} will appear here</h2>
-              <p>
-                Your notes and preferences are prepared. The Estha API connection is
-                the next step that will generate the actual study material.
-              </p>
+              <p className="study-result-label">Creating material</p>
+              <h2>Estha is preparing your {selectedFormat.label.toLowerCase()}</h2>
+              <p>This can take up to a minute for longer notes.</p>
+            </div>
+          ) : generationError ? (
+            <div>
+              <p className="study-result-label">Could not generate</p>
+              <h2>Check your notes and try again</h2>
+              <p className="study-result-error" role="alert">{generationError}</p>
+            </div>
+          ) : result ? (
+            <div className="study-result-content">
+              <p className="study-result-label">Study output</p>
+              <h2>Your {generatedFormat?.label.toLowerCase() || 'study material'}</h2>
+              <div className="study-generated-content">{result}</div>
             </div>
           ) : (
             <div>

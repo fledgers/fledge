@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test backend/crawler/*.test.js src/utils/*.test.js",
+    "test": "node --test api/*.test.js backend/crawler/*.test.js src/utils/*.test.js",
     "preview": "vite preview",
     "crawl:demo": "node backend/crawler/runCrawler.js",
     "crawl:web": "node backend/crawler/runCrawler.js --web",
@@ -23,7 +23,9 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.110.6",
     "lucide-react": "^1.24.0",
+    "mammoth": "^1.12.0",
     "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "^6.1.200",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.18.0"
