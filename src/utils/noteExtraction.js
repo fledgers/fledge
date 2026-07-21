@@ -29,7 +29,7 @@ async function extractPdfText(file) {
       if (pageText) pages.push(pageText);
     }
   } finally {
-    await document.destroy();
+    await loadingTask.destroy();
   }
 
   return pages.join('\n\n');
