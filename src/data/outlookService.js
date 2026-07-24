@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from '../lib/supabase.js';
+import { PROFILE_SELECT } from './profileFields.js';
 
 export const OUTLOOK_BROWSER_DECISION_KEY = 'fledge_outlook_onboarding';
 
@@ -76,9 +77,7 @@ export async function saveOutlookOnboardingChoice(userId, decision) {
       outlook_onboarding_updated_at: new Date().toISOString(),
     })
     .eq('id', userId)
-    .select(
-      'full_name, university, faculty, major, year_of_study, outlook_onboarding_status, outlook_onboarding_updated_at'
-    )
+    .select(PROFILE_SELECT)
     .single();
 
   if (error) throw error;

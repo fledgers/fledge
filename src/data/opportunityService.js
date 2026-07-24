@@ -3,6 +3,7 @@ import {
   supabase,
 } from '../lib/supabase.js';
 import { formatOpportunity } from '../utils/formatOpportunity.js';
+import { PROFILE_SELECT } from './profileFields.js';
 
 export class OpportunityDataError extends Error {
   constructor(code, message, cause) {
@@ -57,9 +58,7 @@ async function loadSavedOpportunities(client, userId) {
 async function loadProfile(client, userId) {
   const { data, error } = await client
     .from('profiles')
-    .select(
-      'full_name, university, faculty, major, year_of_study, outlook_onboarding_status, outlook_onboarding_updated_at'
-    )
+    .select(PROFILE_SELECT)
     .eq('id', userId)
     .maybeSingle();
 
@@ -142,10 +141,23 @@ export async function upsertProfile(userId, profile) {
       faculty: profile.faculty?.trim() || null,
       major: profile.major || null,
       year_of_study: profile.year_of_study || null,
+      opportunity_interests: Array.isArray(profile.opportunity_interests)
+        ? profile.opportunity_interests
+        : [],
+      career_goals: profile.career_goals?.trim() || null,
+      skills_experience: profile.skills_experience?.trim() || null,
+      weekly_availability_hours:
+        profile.weekly_availability_hours ?? null,
+      workload_preference: profile.workload_preference || null,
+      opportunity_budget_sgd: profile.opportunity_budget_sgd ?? null,
+      preferred_locations: profile.preferred_locations?.trim() || null,
+      preferred_delivery_modes:
+        Array.isArray(profile.preferred_delivery_modes)
+          ? profile.preferred_delivery_modes
+          : [],
+      willing_to_travel: profile.willing_to_travel ?? null,
     }, { onConflict: 'id' })
-    .select(
-      'full_name, university, faculty, major, year_of_study, outlook_onboarding_status, outlook_onboarding_updated_at'
-    )
+    .select(PROFILE_SELECT)
     .single();
 
   throwQueryError('Your profile could not be saved.', error);

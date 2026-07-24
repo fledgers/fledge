@@ -15,6 +15,52 @@ create table public.profiles (
   faculty text,
   major text references public.majors(slug),
   year_of_study integer check (year_of_study between 1 and 4),
+  opportunity_interests text[] not null default '{}' check (
+    opportunity_interests <@ array[
+      'internship',
+      'competition',
+      'scholarship',
+      'research',
+      'exchange',
+      'summer_programme',
+      'winter_programme',
+      'volunteer',
+      'community',
+      'mentorship',
+      'networking',
+      'entrepreneurship',
+      'other'
+    ]::text[]
+  ),
+  career_goals text check (
+    career_goals is null
+    or char_length(btrim(career_goals)) between 1 and 1000
+  ),
+  skills_experience text check (
+    skills_experience is null
+    or char_length(btrim(skills_experience)) between 1 and 1500
+  ),
+  weekly_availability_hours integer check (
+    weekly_availability_hours between 0 and 168
+  ),
+  workload_preference text check (
+    workload_preference in ('light', 'moderate', 'intensive', 'flexible')
+  ),
+  opportunity_budget_sgd integer check (
+    opportunity_budget_sgd between 0 and 100000
+  ),
+  preferred_locations text check (
+    preferred_locations is null
+    or char_length(btrim(preferred_locations)) between 1 and 300
+  ),
+  preferred_delivery_modes text[] not null default '{}' check (
+    preferred_delivery_modes <@ array[
+      'online',
+      'hybrid',
+      'in_person'
+    ]::text[]
+  ),
+  willing_to_travel boolean,
   outlook_onboarding_status text not null default 'not_asked' check (
     outlook_onboarding_status in (
       'not_asked',
@@ -163,6 +209,28 @@ create table public.saved_opportunities (
   primary key (user_id, opportunity_id)
 );
 
+create table public.study_generations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  format text not null check (
+    format in ('summary', 'quiz', 'mock_exam')
+  ),
+  title text not null check (
+    char_length(btrim(title)) between 1 and 200
+  ),
+  source_label text not null check (
+    char_length(btrim(source_label)) between 1 and 300
+  ),
+  settings jsonb not null default '{}'::jsonb check (
+    jsonb_typeof(settings) = 'object'
+  ),
+  output text not null check (char_length(btrim(output)) > 0),
+  input_character_count integer not null check (
+    input_character_count >= 30
+  ),
+  created_at timestamptz not null default now()
+);
+
 create table public.opportunity_reports (
   id uuid primary key default gen_random_uuid(),
   opportunity_id uuid not null references public.opportunities(id) on delete cascade,
@@ -287,6 +355,7 @@ alter table public.majors enable row level security;
 alter table public.profiles enable row level security;
 alter table public.opportunities enable row level security;
 alter table public.saved_opportunities enable row level security;
+alter table public.study_generations enable row level security;
 alter table public.opportunity_reports enable row level security;
 alter table public.opportunity_candidates enable row level security;
 alter table public.opportunity_sources enable row level security;
@@ -351,6 +420,24 @@ for delete
 to authenticated
 using (auth.uid() = user_id);
 
+create policy "Users can view their own study generations"
+on public.study_generations
+for select
+to authenticated
+using (auth.uid() = user_id);
+
+create policy "Users can save their own study generations"
+on public.study_generations
+for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+create policy "Users can delete their own study generations"
+on public.study_generations
+for delete
+to authenticated
+using (auth.uid() = user_id);
+
 create policy "Users can view their own opportunity reports"
 on public.opportunity_reports
 for select
@@ -379,6 +466,9 @@ with check (
 
 revoke all on public.opportunity_reports from anon;
 grant select, insert on public.opportunity_reports to authenticated;
+
+revoke all on public.study_generations from anon;
+grant select, insert, delete on public.study_generations to authenticated;
 
 -- Crawler writes should happen from trusted server-side code using the Supabase
 -- service role key. No public read/write policy is added for candidates.
@@ -476,6 +566,9 @@ on public.opportunities(year_max);
 
 create index saved_opportunities_user_id_idx
 on public.saved_opportunities(user_id);
+
+create index study_generations_user_created_at_idx
+on public.study_generations(user_id, created_at desc);
 
 create index opportunity_reports_status_created_at_idx
 on public.opportunity_reports(status, created_at);

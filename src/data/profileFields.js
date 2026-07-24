@@ -1,0 +1,18 @@
+export const PROFILE_SELECT = [
+  'full_name',
+  'university',
+  'faculty',
+  'major',
+  'year_of_study',
+  'opportunity_interests',
+  'career_goals',
+  'skills_experience',
+  'weekly_availability_hours',
+  'workload_preference',
+  'opportunity_budget_sgd',
+  'preferred_locations',
+  'preferred_delivery_modes',
+  'willing_to_travel',
+  'outlook_onboarding_status',
+  'outlook_onboarding_updated_at',
+].join(', ');

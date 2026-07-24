@@ -4,6 +4,17 @@ const DEFAULT_ESTHA_API_URL =
   'https://studio.estha.ai/api/v1/open/chat/completions';
 const MIN_NOTE_CHARACTERS = 30;
 const MAX_NOTE_CHARACTERS = 50_000;
+const MAX_SOURCE_LABEL_CHARACTERS = 300;
+const STUDY_HISTORY_FIELDS = [
+  'id',
+  'format',
+  'title',
+  'source_label',
+  'settings',
+  'output',
+  'input_character_count',
+  'created_at',
+].join(', ');
 
 const FORMAT_RULES = {
   summary: {
@@ -83,11 +94,36 @@ export function validateStudyRequest(body) {
     throw new Error('Choose summary, quiz or mock exam.');
   }
 
+  const sourceLabel = typeof body.sourceLabel === 'string'
+    ? body.sourceLabel.trim()
+    : '';
+
   return {
     format: body.format,
     notes,
+    sourceLabel: (sourceLabel || 'Pasted notes')
+      .slice(0, MAX_SOURCE_LABEL_CHARACTERS),
     settings: cleanSettings(body.format, body.settings),
   };
+}
+
+export function buildHistoryTitle(output, format) {
+  const fallbackTitles = {
+    mock_exam: 'Mock exam',
+    quiz: 'Practice quiz',
+    summary: 'Revision summary',
+  };
+  const firstContentLine = output
+    .split('\n')
+    .map(line => line.trim())
+    .find(line => line && line !== '---' && !line.startsWith('```'));
+  const cleanedTitle = (firstContentLine || '')
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/[*_`~]/g, '')
+    .trim();
+
+  return (cleanedTitle || fallbackTitles[format] || 'Study material')
+    .slice(0, 200);
 }
 
 function formatInstructions(format, settings) {
@@ -191,7 +227,7 @@ function getBearerToken(request) {
   return match?.[1]?.trim() || '';
 }
 
-async function verifyUser(accessToken) {
+function createUserSupabaseClient(accessToken) {
   const supabaseUrl = process.env.SUPABASE_URL
     || process.env.VITE_SUPABASE_URL;
   const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY
@@ -201,19 +237,50 @@ async function verifyUser(accessToken) {
     throw new Error('Study authentication is not configured.');
   }
 
-  const supabase = createClient(supabaseUrl, publishableKey, {
+  return createClient(supabaseUrl, publishableKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
   });
+}
+
+async function verifyUser(accessToken) {
+  const supabase = createUserSupabaseClient(accessToken);
   const { data, error } = await supabase.auth.getUser(accessToken);
 
   if (error || !data.user) {
     return null;
   }
 
-  return data.user;
+  return {
+    supabase,
+    user: data.user,
+  };
+}
+
+async function saveStudyGeneration(supabase, userId, studyRequest, output) {
+  const { data, error } = await supabase
+    .from('study_generations')
+    .insert({
+      format: studyRequest.format,
+      input_character_count: studyRequest.notes.length,
+      output,
+      settings: studyRequest.settings,
+      source_label: studyRequest.sourceLabel,
+      title: buildHistoryTitle(output, studyRequest.format),
+      user_id: userId,
+    })
+    .select(STUDY_HISTORY_FIELDS)
+    .single();
+
+  if (error) throw error;
+  return data;
 }
 
 async function callEstha(studyRequest) {
@@ -282,16 +349,30 @@ export default async function handler(request, response) {
   }
 
   try {
-    const user = await verifyUser(accessToken);
-    if (!user) {
+    const authentication = await verifyUser(accessToken);
+    if (!authentication) {
       return response.status(401).json({ error: 'Your session has expired. Sign in again.' });
     }
 
     const studyRequest = validateStudyRequest(readBody(request));
     const output = await callEstha(studyRequest);
+    let history = null;
+
+    try {
+      history = await saveStudyGeneration(
+        authentication.supabase,
+        authentication.user.id,
+        studyRequest,
+        output
+      );
+    } catch (historyError) {
+      console.error('Could not save study generation history.', historyError);
+    }
 
     return response.status(200).json({
       format: studyRequest.format,
+      history,
+      historySaved: Boolean(history),
       output,
     });
   } catch (error) {

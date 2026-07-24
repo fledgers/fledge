@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildHistoryTitle,
   buildStudyMessages,
   extractEsthaOutput,
   validateStudyRequest,
@@ -21,6 +22,24 @@ test('validates and cleans summary settings', () => {
     summaryFocus: 'definitions',
     summaryLength: 'detailed',
   });
+  assert.equal(result.sourceLabel, 'Pasted notes');
+});
+
+test('uses a supplied source label without retaining source notes', () => {
+  const result = validateStudyRequest({
+    format: 'quiz',
+    notes: 'These notes contain enough useful content for a quiz.',
+    sourceLabel: 'Lecture 3.pdf',
+  });
+
+  assert.equal(result.sourceLabel, 'Lecture 3.pdf');
+});
+
+test('builds a readable history title from Markdown output', () => {
+  assert.equal(
+    buildHistoryTitle('# **Bioremediation revision summary**\n\n## Concepts', 'summary'),
+    'Bioremediation revision summary'
+  );
 });
 
 test('rejects the removed flashcards format', () => {
