@@ -1,5 +1,5 @@
 import { isSupabaseConfigured, supabase } from '../lib/supabase.js';
-import { PROFILE_SELECT } from './profileFields.js';
+import { selectProfileWithSchemaFallback } from './profileFields.js';
 
 export const OUTLOOK_BROWSER_DECISION_KEY = 'fledge_outlook_onboarding';
 
@@ -70,17 +70,23 @@ export async function disconnectOutlook() {
 
 export async function saveOutlookOnboardingChoice(userId, decision) {
   const client = requireSupabase();
-  const { data, error } = await client
+  const { error } = await client
     .from('profiles')
     .update({
       outlook_onboarding_status: decision,
       outlook_onboarding_updated_at: new Date().toISOString(),
     })
-    .eq('id', userId)
-    .select(PROFILE_SELECT)
-    .single();
+    .eq('id', userId);
 
   if (error) throw error;
+
+  const { data, error: profileError } = await selectProfileWithSchemaFallback(
+    client,
+    userId,
+  );
+
+  if (profileError) throw profileError;
+
   setBrowserOutlookDecision(decision);
   return data;
 }

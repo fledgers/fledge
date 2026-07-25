@@ -14,6 +14,7 @@ import Profile from './pages/Profile';
 import ResetPassword from './pages/ResetPassword';
 import Outlook from './pages/Outlook';
 import Study from './pages/Study';
+import StudyHistory from './pages/StudyHistory';
 import OutlookGate from './components/OutlookGate';
 import RequireAuth from './components/RequireAuth';
 import OpportunitiesProvider from './providers/OpportunitiesProvider';
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/explore" element={<OutlookGate><Explore /></OutlookGate>} />
           <Route path="/saved" element={<OutlookGate><Saved /></OutlookGate>} />
           <Route path="/study" element={<RequireAuth><Study /></RequireAuth>} />
+          <Route path="/study/history" element={<RequireAuth><StudyHistory /></RequireAuth>} />
           <Route path="/for-you" element={<OutlookGate><ForYou /></OutlookGate>} />
           <Route path="/signup" element={<SignUp />} />
           <Route path="/login" element={<LogIn />} />

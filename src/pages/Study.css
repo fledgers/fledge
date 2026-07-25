@@ -77,6 +77,7 @@
   gap: 7px;
   min-height: 34px;
   padding: 7px 10px;
+  text-decoration: none;
 }
 
 .study-history-toggle:hover {
@@ -223,6 +224,28 @@
   background: #fff6df;
   border-left: 3px solid #d79c00;
   color: #664a00;
+}
+
+.study-history-layout {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+}
+
+.study-history-page .study-history-panel,
+.study-history-page .study-result {
+  margin: 0;
+}
+
+.study-history-detail {
+  min-width: 0;
+}
+
+.study-history-detail-meta {
+  color: #77776e;
+  font-size: 12px;
+  margin: 4px 0 0;
 }
 
 .study-workspace {
@@ -773,6 +796,7 @@
 }
 
 @media (max-width: 900px) {
+  .study-history-layout,
   .study-workspace {
     grid-template-columns: 1fr;
   }

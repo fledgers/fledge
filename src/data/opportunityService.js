@@ -3,7 +3,11 @@ import {
   supabase,
 } from '../lib/supabase.js';
 import { formatOpportunity } from '../utils/formatOpportunity.js';
-import { PROFILE_SELECT } from './profileFields.js';
+import {
+  PROFILE_SELECT,
+  isRecommendationProfileSchemaMissing,
+  selectProfileWithSchemaFallback,
+} from './profileFields.js';
 
 export class OpportunityDataError extends Error {
   constructor(code, message, cause) {
@@ -56,11 +60,10 @@ async function loadSavedOpportunities(client, userId) {
 }
 
 async function loadProfile(client, userId) {
-  const { data, error } = await client
-    .from('profiles')
-    .select(PROFILE_SELECT)
-    .eq('id', userId)
-    .maybeSingle();
+  const { data, error } = await selectProfileWithSchemaFallback(
+    client,
+    userId,
+  );
 
   throwQueryError('Your profile could not be loaded.', error);
   return data || null;
@@ -159,6 +162,14 @@ export async function upsertProfile(userId, profile) {
     }, { onConflict: 'id' })
     .select(PROFILE_SELECT)
     .single();
+
+  if (isRecommendationProfileSchemaMissing(error)) {
+    throw new OpportunityDataError(
+      'PROFILE_SCHEMA_UPDATE_REQUIRED',
+      'Profile recommendations are not ready yet. Run the Phase 20 profile migration in Supabase, then try again.',
+      error,
+    );
+  }
 
   throwQueryError('Your profile could not be saved.', error);
   return data;

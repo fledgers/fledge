@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   ClipboardCheck,
@@ -6,17 +6,13 @@ import {
   FileText,
   History,
   Sparkles,
-  Trash2,
   UploadCloud,
   X,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Navbar from '../components/Navbar';
-import {
-  deleteStudyGeneration,
-  listStudyGenerations,
-} from '../data/studyHistoryService';
 import { supabase } from '../lib/supabase';
 import {
   extractNotesFromFiles,
@@ -26,10 +22,6 @@ import './Study.css';
 
 const MAX_FILES = 5;
 const ACCEPTED_EXTENSIONS = new Set(['pdf', 'docx', 'txt']);
-const HISTORY_DATE_FORMATTER = new Intl.DateTimeFormat('en-SG', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-});
 
 const STUDY_FORMATS = [
   {
@@ -62,17 +54,6 @@ function formatFileSize(bytes) {
   }
 
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatHistoryDate(value) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Unknown date'
-    : HISTORY_DATE_FORMATTER.format(date);
-}
-
-function getFormatLabel(format) {
-  return STUDY_FORMATS.find(item => item.id === format)?.label || 'Study material';
 }
 
 function getSourceLabel(sourceMode, files) {
@@ -197,19 +178,14 @@ export default function Study() {
   const resultRef = useRef(null);
   const [files, setFiles] = useState([]);
   const [format, setFormat] = useState('summary');
-  const [currentHistoryId, setCurrentHistoryId] = useState('');
-  const [deletingHistoryId, setDeletingHistoryId] = useState('');
   const [generationError, setGenerationError] = useState('');
-  const [history, setHistory] = useState([]);
-  const [historyError, setHistoryError] = useState('');
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [historySaveWarning, setHistorySaveWarning] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [notesText, setNotesText] = useState('');
   const [result, setResult] = useState('');
   const [resultFormat, setResultFormat] = useState('');
+  const [resultSaved, setResultSaved] = useState(false);
   const [sourceError, setSourceError] = useState('');
   const [sourceMode, setSourceMode] = useState('upload');
   const [settings, setSettings] = useState({
@@ -235,43 +211,12 @@ export default function Study() {
     ? files.length > 0
     : notesText.trim().length >= 30;
 
-  useEffect(() => {
-    let isActive = true;
-
-    async function loadHistory() {
-      setIsHistoryLoading(true);
-      setHistoryError('');
-
-      try {
-        const generations = await listStudyGenerations();
-        if (isActive) {
-          setHistory(generations);
-        }
-      } catch {
-        if (isActive) {
-          setHistoryError(
-            'History is unavailable. Run the Phase 19 database migration in Supabase, then refresh.'
-          );
-        }
-      } finally {
-        if (isActive) {
-          setIsHistoryLoading(false);
-        }
-      }
-    }
-
-    loadHistory();
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
   function markDraftChanged() {
-    setCurrentHistoryId('');
     setGenerationError('');
     setHistorySaveWarning('');
     setResult('');
     setResultFormat('');
+    setResultSaved(false);
   }
 
   function addFiles(selectedFiles) {
@@ -345,10 +290,10 @@ export default function Study() {
 
     setSourceError('');
     setGenerationError('');
-    setCurrentHistoryId('');
     setHistorySaveWarning('');
     setResult('');
     setResultFormat('');
+    setResultSaved(false);
     setIsGenerating(true);
     scrollToResult();
 
@@ -402,19 +347,12 @@ export default function Study() {
 
       setResult(payload.output.trim());
       setResultFormat(format);
-      setCurrentHistoryId(payload.history?.id || '');
+      setResultSaved(Boolean(payload.historySaved));
       setHistorySaveWarning(
         payload.historySaved
           ? ''
           : 'Generated successfully, but it was not saved to history. Run Phase 19 in Supabase and try again.'
       );
-
-      if (payload.history) {
-        setHistory(current => [
-          payload.history,
-          ...current.filter(item => item.id !== payload.history.id),
-        ]);
-      }
     } catch (error) {
       setGenerationError(
         error instanceof Error ? error.message : 'Study generation failed. Try again.'
@@ -422,39 +360,6 @@ export default function Study() {
     } finally {
       setIsGenerating(false);
       scrollToResult();
-    }
-  }
-
-  function openHistoryItem(item) {
-    setCurrentHistoryId(item.id);
-    setGenerationError('');
-    setHistorySaveWarning('');
-    setResult(item.output);
-    setResultFormat(item.format);
-    scrollToResult();
-  }
-
-  async function removeHistoryItem(item) {
-    if (!window.confirm(`Delete "${item.title}" from your study history?`)) {
-      return;
-    }
-
-    setDeletingHistoryId(item.id);
-    setHistoryError('');
-
-    try {
-      await deleteStudyGeneration(item.id);
-      setHistory(current => current.filter(historyItem => historyItem.id !== item.id));
-
-      if (currentHistoryId === item.id) {
-        setCurrentHistoryId('');
-        setResult('');
-        setResultFormat('');
-      }
-    } catch {
-      setHistoryError('Could not delete that saved item. Try again.');
-    } finally {
-      setDeletingHistoryId('');
     }
   }
 
@@ -475,84 +380,15 @@ export default function Study() {
             </p>
           </div>
           <div className="study-heading-actions">
-            <button
-              aria-expanded={historyOpen}
-              className="study-history-toggle"
-              onClick={() => setHistoryOpen(current => !current)}
-              type="button"
-            >
+            <Link className="study-history-toggle" to="/study/history">
               <History aria-hidden="true" size={17} />
               History
-              {history.length > 0 && <span>{history.length}</span>}
-            </button>
+            </Link>
             <div className="study-private-badge">
               Your private workspace
             </div>
           </div>
         </header>
-
-        {historyOpen && (
-          <section
-            aria-labelledby="study-history-heading"
-            className="study-history-panel"
-          >
-            <div className="study-history-header">
-              <p className="study-kicker">Saved materials</p>
-              <h2 id="study-history-heading">Generation history</h2>
-              <p>Open or delete your latest saved study materials.</p>
-            </div>
-
-            {isHistoryLoading && (
-              <p className="study-history-message">Loading history...</p>
-            )}
-
-            {historyError && (
-              <p className="study-history-error" role="alert">{historyError}</p>
-            )}
-
-            {!isHistoryLoading && !historyError && history.length === 0 && (
-              <p className="study-history-message">
-                No saved generations yet. Create a summary, quiz or mock exam
-                to start your history.
-              </p>
-            )}
-
-            {history.length > 0 && (
-              <ul className="study-history-list">
-                {history.map(item => (
-                  <li
-                    className={currentHistoryId === item.id ? 'is-current' : ''}
-                    key={item.id}
-                  >
-                    <button
-                      className="study-history-open"
-                      onClick={() => openHistoryItem(item)}
-                      type="button"
-                    >
-                      <span className="study-history-format">
-                        {getFormatLabel(item.format)}
-                      </span>
-                      <strong>{item.title}</strong>
-                      <small>
-                        {item.source_label} · {formatHistoryDate(item.created_at)}
-                      </small>
-                    </button>
-                    <button
-                      aria-label={`Delete ${item.title}`}
-                      className="study-history-delete"
-                      disabled={deletingHistoryId === item.id}
-                      onClick={() => removeHistoryItem(item)}
-                      title={`Delete ${item.title}`}
-                      type="button"
-                    >
-                      <Trash2 aria-hidden="true" size={17} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        )}
 
         <form onSubmit={handleGenerate}>
           <div className="study-workspace">
@@ -783,7 +619,7 @@ export default function Study() {
           ) : result ? (
             <div className="study-result-content">
               <p className="study-result-label">
-                {currentHistoryId ? 'Saved study output' : 'Study output'}
+                {resultSaved ? 'Saved study output' : 'Study output'}
               </p>
               <h2>Your {generatedFormat?.label.toLowerCase() || 'study material'}</h2>
               <div className="study-generated-content">
