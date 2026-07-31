@@ -1,11 +1,11 @@
 export function matchesMajor(opportunity, selectedMajor) {
   if (!selectedMajor) return true;
 
-  const eligibleMajors = opportunity.eligible_majors || [];
-  const eligibilityType = opportunity.major_eligibility_type;
+  if (opportunity.major_eligibility_type === "all") return true;
 
-  if (["all", "unknown", "inferred"].includes(eligibilityType)) return true;
-  if (eligibleMajors.length === 0) return true;
+  const eligibleMajors = Array.isArray(opportunity.eligible_majors)
+    ? opportunity.eligible_majors
+    : [];
 
   return eligibleMajors.includes(selectedMajor);
 }
