@@ -130,6 +130,18 @@ function extractTitle(html, fallback) {
   return fallback;
 }
 
+function isSoftNotFoundPage(html) {
+  const pageTitle = normalizeWhitespace(extractTitle(html, "")).toLowerCase();
+  const pageText = stripHtml(html).toLowerCase();
+
+  return (
+    /^(?:404(?:\s*[-:|]\s*)?)?(?:page\s+)?not\s+found\b/.test(pageTitle) ||
+    pageText.includes(
+      "sorry, the page or content that you are looking for has been moved or no longer exists"
+    )
+  );
+}
+
 function extractMetaDescription(html) {
   const match = html.match(
     /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["'][^>]*>/i
@@ -328,15 +340,19 @@ async function fetchHtml(url, source) {
   const html = await response.text();
   const protectionResponse = html.toLowerCase();
 
-  if (
-    protectionResponse.includes("incapsula incident id") ||
-    protectionResponse.includes("request unsuccessful")
-  ) {
-    throw new Error(`Blocked by website protection: ${url}`);
-  }
+    if (
+      protectionResponse.includes("incapsula incident id") ||
+      protectionResponse.includes("request unsuccessful")
+    ) {
+      throw new Error(`Blocked by website protection: ${url}`);
+    }
 
-  return html;
-}
+    if (isSoftNotFoundPage(html)) {
+      throw new Error(`Website returned a not-found page: ${url}`);
+    }
+
+    return html;
+  }
 
 async function fetchPdfText(url, source) {
   const response = await fetchWithRetry(url, {

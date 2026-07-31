@@ -103,6 +103,46 @@ test("reports an Incapsula response as website protection", async () => {
   }
 });
 
+test("reports a successful HTTP response containing a not-found page", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async () =>
+    new Response(
+      `
+        <html>
+          <head><title>Page Not Found</title></head>
+          <body>
+            <h1>Page Not Found</h1>
+            <p>
+              Sorry, the page or content that you are looking for has been
+              moved or no longer exists.
+            </p>
+          </body>
+        </html>
+      `,
+      {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }
+    );
+
+  try {
+    await assert.rejects(
+      fetchPublicWebSource({
+        id: "soft-404-source",
+        name: "Soft 404 Source",
+        school: "nus",
+        url: "https://example.edu/moved-opportunity",
+        allowedHosts: ["example.edu"],
+        maxLinkedPages: 0,
+      }),
+      /Website returned a not-found page/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("discovers a specific opportunity through a relevant depth-two link", async () => {
   const originalFetch = globalThis.fetch;
   const pages = new Map([
