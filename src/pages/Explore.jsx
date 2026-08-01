@@ -6,6 +6,7 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import FilterBar from '../components/FilterBar';
+import OpportunityAdvisor from '../components/OpportunityAdvisor';
 import OpportunityCard from '../components/OpportunityCard';
 import OpportunityDataState from '../components/OpportunityDataState';
 import { CATEGORIES, MAJORS } from '../data/opportunityFilters';
@@ -17,15 +18,19 @@ function getDeadlineTime(opportunity) {
   return opportunity.deadline ? new Date(opportunity.deadline).getTime() : Number.POSITIVE_INFINITY;
 }
 
+const MAX_ADVISOR_OPPORTUNITIES = 8;
+
 export default function Explore() {
   const navigate = useNavigate();
   const {
     error,
     isLoading,
     opportunities,
+    profile,
     refresh,
     savedOpportunityIds,
     toggleSaved,
+    user,
   } = useOpportunities();
   // --- STATE ---
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,6 +110,32 @@ export default function Explore() {
 
     return results;
   }, [activeOpportunities, searchQuery, activeCategories, selectedMajor, activeYear, sortBy]);
+
+  const hasActiveFilters = Boolean(
+    searchQuery.trim()
+      || activeCategories.length > 0
+      || selectedMajor
+      || activeYear !== 0
+  );
+
+  // The adviser API accepts up to eight opportunities. Use the first eight
+  // from the user's currently filtered and sorted result set.
+  const advisorOpportunities = filtered.slice(0, MAX_ADVISOR_OPPORTUNITIES);
+  const advisorFilters = {
+    search: searchQuery.trim(),
+    categories: activeCategories,
+    major: selectedMajor,
+    year: activeYear === 0 ? '' : String(activeYear),
+    sortBy,
+  };
+  const advisorKey = [
+    advisorFilters.search,
+    [...advisorFilters.categories].sort().join(','),
+    advisorFilters.major,
+    advisorFilters.year,
+    advisorFilters.sortBy,
+    advisorOpportunities.map((opportunity) => opportunity.id).join(','),
+  ].join('|');
 
   return (
     <div style={{ fontFamily: "'DM Sans', sans-serif", background: '#F5F2ED', color: '#1a1a18', minHeight: '100vh' }}>
@@ -211,6 +242,22 @@ export default function Explore() {
           {actionError}
         </div>
       )}
+
+      {!isLoading
+        && !error
+        && hasActiveFilters
+        && advisorOpportunities.length >= 2 && (
+          <div style={{ padding: '0 48px 20px' }}>
+            <OpportunityAdvisor
+              key={advisorKey}
+              filters={advisorFilters}
+              opportunities={advisorOpportunities}
+              profile={profile}
+              totalCount={filtered.length}
+              user={user}
+            />
+          </div>
+        )}
 
       {/* Cards grid */}
       <div style={{ padding: '0 48px 48px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
