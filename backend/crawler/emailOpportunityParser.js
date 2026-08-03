@@ -233,16 +233,6 @@ const MAJOR_RULES = [
     ],
   },
   {
-    major: "common_computer_science_programmes",
-    keywords: [
-      "common computer science",
-      "computing programme",
-      "computing program",
-      "computer science programme",
-      "computer science program",
-    ],
-  },
-  {
     major: "communications_and_new_media",
     keywords: [
       "communications",
@@ -259,6 +249,11 @@ const MAJOR_RULES = [
   {
     major: "computer_science",
     keywords: [
+      "common computer science",
+      "computing programme",
+      "computing program",
+      "computer science programme",
+      "computer science program",
       "computer science",
       "software",
       "software engineering",

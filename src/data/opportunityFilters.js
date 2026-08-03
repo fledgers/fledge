@@ -25,7 +25,6 @@ export const MAJORS = [
   { key: 'chemistry', label: 'Chemistry' },
   { key: 'chinese_languages_and_cultures', label: 'Chinese Languages and Cultures' },
   { key: 'chinese_studies_bilingual', label: 'Chinese Studies (Bilingual)' },
-  { key: 'common_computer_science_programmes', label: 'Common Computer Science Programmes' },
   { key: 'communications_and_new_media', label: 'Communications and New Media' },
   { key: 'computer_science', label: 'Computer Science' },
   { key: 'data_science_and_analytics', label: 'Data Science and Analytics' },

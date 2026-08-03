@@ -7,6 +7,15 @@ const MAX_FILTER_TEXT_LENGTH = 200;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export class AdvisorServiceError extends Error {
+  constructor(message, { status = 500, code = 'advisor_error', cause } = {}) {
+    super(message, { cause });
+    this.name = 'AdvisorServiceError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
 function sendJson(response, status, payload) {
   response.status(status).json(payload);
 }
@@ -31,9 +40,13 @@ function cleanText(value, maxLength = 2_000) {
 }
 
 function cleanStringArray(value, limit = 6, itemLength = 400) {
-  if (!Array.isArray(value)) return [];
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/\n|;/)
+      : [];
 
-  return value
+  return values
     .map((item) => cleanText(String(item ?? ''), itemLength))
     .filter(Boolean)
     .slice(0, limit);
@@ -177,23 +190,45 @@ export function buildAdvisorMessages({
 }
 
 export function extractEsthaOutput(payload) {
-  const output =
-    payload?.choices?.[0]?.message?.content ??
-    payload?.choices?.[0]?.text ??
-    payload?.message?.content ??
-    payload?.message ??
-    payload?.output_text ??
-    payload?.output ??
-    payload?.response;
+  const candidates = [
+    payload?.choices?.[0]?.message?.content,
+    payload?.choices?.[0]?.text,
+    payload?.message?.content,
+    payload?.message,
+    payload?.output_text,
+    payload?.output,
+    payload?.response,
+    payload?.result,
+    payload?.data,
+    payload,
+  ];
 
-  if (typeof output === 'string' && output.trim()) {
-    return output.trim();
+  for (const candidate of candidates) {
+    const output = contentToText(candidate);
+
+    if (output) return output;
+
+    if (isAdvisorPayload(candidate)) return candidate;
   }
 
-  throw new Error('Estha returned an empty recommendation.');
+  throw new AdvisorServiceError(
+    'Estha returned an empty response. Try again.',
+    { status: 502, code: 'estha_empty_response' },
+  );
 }
 
 function extractJsonObject(output) {
+  if (output && typeof output === 'object' && !Array.isArray(output)) {
+    return output;
+  }
+
+  if (typeof output !== 'string') {
+    throw new AdvisorServiceError(
+      'Estha returned an unsupported response format.',
+      { status: 502, code: 'estha_invalid_format' },
+    );
+  }
+
   const withoutFence = output
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
@@ -202,55 +237,145 @@ function extractJsonObject(output) {
   const lastBrace = withoutFence.lastIndexOf('}');
 
   if (firstBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error('Estha returned an invalid recommendation format.');
+    throw new AdvisorServiceError(
+      'Estha returned an invalid recommendation format. Try again.',
+      { status: 502, code: 'estha_invalid_format' },
+    );
   }
 
-  return JSON.parse(withoutFence.slice(firstBrace, lastBrace + 1));
+  try {
+    return JSON.parse(withoutFence.slice(firstBrace, lastBrace + 1));
+  } catch (error) {
+    throw new AdvisorServiceError(
+      'Estha returned malformed comparison data. Try again.',
+      { status: 502, code: 'estha_invalid_json', cause: error },
+    );
+  }
 }
 
 export function parseAdvisorOutput(output, allowedOpportunityIds) {
-  const parsed = extractJsonObject(output);
+  const parsed = unwrapAdvisorPayload(extractJsonObject(output));
   const allowedIds = new Set(allowedOpportunityIds);
-  const recommendations = Array.isArray(parsed.recommendations)
-    ? parsed.recommendations
+  const rawRecommendations =
+    parsed.recommendations ??
+    parsed.rankings ??
+    parsed.opportunities ??
+    parsed.matches;
+  const recommendations = Array.isArray(rawRecommendations)
+    ? rawRecommendations
         .filter((item) => allowedIds.has(item?.opportunity_id))
-        .map((item, index) => ({
+        .map((item, index) => ({ item, index }))
+        .sort((left, right) => {
+          const leftRank = Number(left.item.rank) || left.index + 1;
+          const rightRank = Number(right.item.rank) || right.index + 1;
+          return leftRank - rightRank;
+        })
+        .filter(
+          ({ item }, index, items) =>
+            items.findIndex(
+              ({ item: candidate }) =>
+                candidate.opportunity_id === item.opportunity_id,
+            ) === index,
+        )
+        .map(({ item }, index) => ({
           opportunity_id: item.opportunity_id,
           rank: index + 1,
           fit_score: Math.max(
             0,
             Math.min(100, Number(item.fit_score) || 0),
           ),
-          fit_label: cleanText(item.fit_label, 60) || 'Fit unclear',
-          reason: cleanText(item.reason, 800),
+          fit_label:
+            cleanText(item.fit_label ?? item.fitLabel, 60) ||
+            'Fit unclear',
+          reason: cleanText(
+            item.reason ?? item.rationale ?? item.explanation,
+            800,
+          ),
           pros: cleanStringArray(item.pros),
           cons: cleanStringArray(item.cons),
           workload_level:
-            cleanText(item.workload_level, 40) || 'Unknown',
+            cleanText(item.workload_level ?? item.workloadLevel, 40) ||
+            'Unknown',
           workload_assessment: cleanText(
-            item.workload_assessment,
+            item.workload_assessment ?? item.workloadAssessment,
             600,
           ),
           eligibility_checks: cleanStringArray(
-            item.eligibility_checks,
+            item.eligibility_checks ?? item.eligibilityChecks,
           ),
           questions_to_verify: cleanStringArray(
-            item.questions_to_verify,
+            item.questions_to_verify ?? item.questionsToVerify,
           ),
         }))
     : [];
 
   if (recommendations.length < 2) {
-    throw new Error(
-      'Estha did not return enough valid opportunities to compare.',
+    throw new AdvisorServiceError(
+      'Estha did not return enough valid opportunities to compare. Try again.',
+      { status: 502, code: 'estha_incomplete_comparison' },
     );
   }
 
   return {
-    overview: cleanText(parsed.overview, 1_000),
+    overview: cleanText(parsed.overview ?? parsed.summary, 1_000),
     recommendations,
-    general_advice: cleanText(parsed.general_advice, 1_000),
+    general_advice: cleanText(
+      parsed.general_advice ?? parsed.generalAdvice ?? parsed.next_steps,
+      1_000,
+    ),
   };
+}
+
+function contentToText(content) {
+  if (typeof content === 'string') return content.trim();
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => contentToText(part))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
+  if (!content || typeof content !== 'object') return '';
+
+  for (const key of ['text', 'content', 'value']) {
+    const text = contentToText(content[key]);
+    if (text) return text;
+  }
+
+  return '';
+}
+
+function isAdvisorPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  return ['recommendations', 'rankings', 'opportunities', 'matches'].some(
+    (key) => Array.isArray(value[key]),
+  );
+}
+
+function unwrapAdvisorPayload(value) {
+  let current = value;
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (isAdvisorPayload(current)) return current;
+
+    const nested =
+      current?.comparison ??
+      current?.analysis ??
+      current?.result ??
+      current?.data ??
+      current?.response ??
+      current?.output;
+
+    if (!nested || nested === current) break;
+    current = nested;
+  }
+
+  return current;
 }
 
 async function callEstha(messages) {
@@ -266,7 +391,10 @@ async function callEstha(messages) {
     process.env.ESTHA_MODEL_ID;
 
   if (!apiKey) {
-    throw new Error('The Estha opportunity advisor is not configured.');
+    throw new AdvisorServiceError(
+      'The Estha opportunity advisor is not configured in Vercel.',
+      { status: 503, code: 'estha_not_configured' },
+    );
   }
 
   const controller = new AbortController();
@@ -287,17 +415,69 @@ async function callEstha(messages) {
       signal: controller.signal,
     });
 
-    const payload = await response.json().catch(() => ({}));
+    const responseText = await response.text();
+    let payload = {};
+
+    if (responseText) {
+      try {
+        payload = JSON.parse(responseText);
+      } catch {
+        payload = { output: responseText };
+      }
+    }
 
     if (!response.ok) {
       console.error('Estha opportunity advisor failed', {
         status: response.status,
-        payload,
       });
-      throw new Error('Estha could not compare the opportunities.');
+
+      if (response.status === 401 || response.status === 403) {
+        throw new AdvisorServiceError(
+          'Estha rejected the API key. Check the Vercel Estha secret.',
+          { status: 502, code: 'estha_auth_failed' },
+        );
+      }
+
+      if (response.status === 404) {
+        throw new AdvisorServiceError(
+          'The configured Estha API endpoint or app was not found.',
+          { status: 502, code: 'estha_endpoint_not_found' },
+        );
+      }
+
+      if (response.status === 429) {
+        throw new AdvisorServiceError(
+          'The Estha usage limit was reached. Please try again later.',
+          { status: 429, code: 'estha_rate_limited' },
+        );
+      }
+
+      throw new AdvisorServiceError(
+        response.status >= 500
+          ? 'Estha is temporarily unavailable. Please try again later.'
+          : 'Estha rejected the comparison request. Check its API configuration.',
+        {
+          status: response.status >= 500 ? 503 : 502,
+          code: 'estha_request_failed',
+        },
+      );
     }
 
     return extractEsthaOutput(payload);
+  } catch (error) {
+    if (error instanceof AdvisorServiceError) throw error;
+
+    if (error?.name === 'AbortError') {
+      throw new AdvisorServiceError(
+        'Estha took too long to respond. Please try again.',
+        { status: 504, code: 'estha_timeout', cause: error },
+      );
+    }
+
+    throw new AdvisorServiceError(
+      'The server could not connect to Estha. Check the API URL and try again.',
+      { status: 502, code: 'estha_connection_failed', cause: error },
+    );
   } finally {
     clearTimeout(timeout);
   }
@@ -413,6 +593,13 @@ export default async function handler(request, response) {
     });
   } catch (error) {
     console.error('Opportunity advisor request failed', error);
+
+    if (error instanceof AdvisorServiceError) {
+      return sendJson(response, error.status, {
+        error: error.message,
+        code: error.code,
+      });
+    }
 
     const status =
       error instanceof SyntaxError ||

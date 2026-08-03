@@ -483,7 +483,6 @@ insert into public.majors (slug, label) values
   ('chemistry', 'Chemistry'),
   ('chinese_languages_and_cultures', 'Chinese Languages and Cultures'),
   ('chinese_studies_bilingual', 'Chinese Studies (Bilingual)'),
-  ('common_computer_science_programmes', 'Common Computer Science Programmes'),
   ('communications_and_new_media', 'Communications and New Media'),
   ('computer_science', 'Computer Science'),
   ('data_science_and_analytics', 'Data Science and Analytics'),

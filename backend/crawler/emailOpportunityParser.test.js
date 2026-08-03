@@ -204,6 +204,35 @@ test("keeps a major-restricted Outlook opportunity private to the mailbox owner"
   assert.ok(candidate.dedupe_key.startsWith(`private:${ownerUserId}:`));
 });
 
+test("maps legacy common computer science wording to Computer Science", () => {
+  const ownerUserId = "11111111-1111-4111-8111-111111111111";
+  const candidate = parseEmailToOpportunityCandidate(
+    {
+      id: "common-computing-major",
+      subject: "Applications open for Computing Research Attachment",
+      from: {
+        emailAddress: {
+          name: "NUS Computing",
+          address: "computing@nus.edu.sg",
+        },
+      },
+      receivedDateTime: "2026-07-15T01:00:00Z",
+      bodyPreview:
+        "For NUS students. Open to Common Computer Science Programmes students only. Deadline: 30 September 2026.",
+      body: {
+        contentType: "text",
+        content:
+          "For NUS students. Open to Common Computer Science Programmes students only. Deadline: 30 September 2026. Apply at https://example.edu/apply.",
+      },
+      webLink: "https://outlook.office.com/mail/common-computing-major",
+    },
+    { sourcePriority: 0, ownerUserId }
+  );
+
+  assert.ok(candidate);
+  assert.deepEqual(candidate.opportunity.eligible_majors, ["computer_science"]);
+});
+
 test("does not treat a student's interest as an explicit major restriction", () => {
   const candidate = parseEmailToOpportunityCandidate(
     {
