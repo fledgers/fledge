@@ -153,6 +153,7 @@ export function buildAdvisorMessages({
     recommendations: [
       {
         opportunity_id: 'UUID copied exactly from the input',
+        opportunity_title: 'Title copied exactly from the input',
         rank: 1,
         fit_score: 85,
         fit_label: 'Strong fit',
@@ -243,61 +244,183 @@ function extractJsonObject(output) {
   }
 }
 
-export function parseAdvisorOutput(output, allowedOpportunityIds) {
+function normalizeLookupValue(value) {
+  if (typeof value !== 'string') return '';
+
+  return value
+    .normalize('NFKC')
+    .replace(/[\u2010-\u2015]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function buildOpportunityLookup(allowedOpportunities) {
+  const normalizedOpportunities = allowedOpportunities
+    .map((opportunity) =>
+      typeof opportunity === 'string'
+        ? { id: opportunity, title: '' }
+        : {
+            id: opportunity?.id,
+            title: opportunity?.title,
+          },
+    )
+    .filter((opportunity) => typeof opportunity.id === 'string');
+  const ids = new Map(
+    normalizedOpportunities.map((opportunity) => [
+      normalizeLookupValue(opportunity.id),
+      opportunity.id,
+    ]),
+  );
+  const titleCounts = new Map();
+
+  for (const opportunity of normalizedOpportunities) {
+    const title = normalizeLookupValue(opportunity.title);
+    if (!title) continue;
+    titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
+  }
+
+  const uniqueTitles = new Map(
+    normalizedOpportunities
+      .map((opportunity) => [
+        normalizeLookupValue(opportunity.title),
+        opportunity.id,
+      ])
+      .filter(([title]) => title && titleCounts.get(title) === 1),
+  );
+
+  return { ids, uniqueTitles };
+}
+
+function getRecommendationOpportunityId(item, lookup) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return null;
+  }
+
+  const suppliedId =
+    item.opportunity_id ??
+    item.opportunityId ??
+    item.opportunityID ??
+    item.id ??
+    item.opportunity?.id;
+  const matchedId = lookup.ids.get(normalizeLookupValue(suppliedId));
+  if (matchedId) return matchedId;
+
+  const suppliedTitle =
+    item.opportunity_title ??
+    item.opportunityTitle ??
+    item.title ??
+    item.name ??
+    (typeof item.opportunity === 'string'
+      ? item.opportunity
+      : item.opportunity?.title);
+
+  return (
+    lookup.uniqueTitles.get(normalizeLookupValue(suppliedTitle)) ||
+    null
+  );
+}
+
+function toRecommendationArray(rawRecommendations) {
+  if (Array.isArray(rawRecommendations)) return rawRecommendations;
+
+  if (
+    !rawRecommendations ||
+    typeof rawRecommendations !== 'object'
+  ) {
+    return [];
+  }
+
+  return Object.entries(rawRecommendations)
+    .map(([key, value]) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? {
+            ...value,
+            opportunity_id:
+              value.opportunity_id ??
+              value.opportunityId ??
+              value.id ??
+              key,
+          }
+        : null,
+    )
+    .filter(Boolean);
+}
+
+export function parseAdvisorOutput(output, allowedOpportunities) {
   const parsed = unwrapAdvisorPayload(extractJsonObject(output));
-  const allowedIds = new Set(allowedOpportunityIds);
+  const opportunityLookup = buildOpportunityLookup(allowedOpportunities);
   const rawRecommendations =
     parsed.recommendations ??
     parsed.rankings ??
+    parsed.ranked_opportunities ??
+    parsed.rankedOpportunities ??
     parsed.opportunities ??
     parsed.matches;
-  const recommendations = Array.isArray(rawRecommendations)
-    ? rawRecommendations
-        .filter((item) => allowedIds.has(item?.opportunity_id))
-        .map((item, index) => ({ item, index }))
-        .sort((left, right) => {
-          const leftRank = Number(left.item.rank) || left.index + 1;
-          const rightRank = Number(right.item.rank) || right.index + 1;
-          return leftRank - rightRank;
-        })
-        .filter(
-          ({ item }, index, items) =>
-            items.findIndex(
-              ({ item: candidate }) =>
-                candidate.opportunity_id === item.opportunity_id,
-            ) === index,
-        )
-        .map(({ item }, index) => ({
-          opportunity_id: item.opportunity_id,
-          rank: index + 1,
-          fit_score: Math.max(
-            0,
-            Math.min(100, Number(item.fit_score) || 0),
-          ),
-          fit_label:
-            cleanText(item.fit_label ?? item.fitLabel, 60) ||
-            'Fit unclear',
-          reason: cleanText(
-            item.reason ?? item.rationale ?? item.explanation,
-            800,
-          ),
-          pros: cleanStringArray(item.pros),
-          cons: cleanStringArray(item.cons),
-          workload_level:
-            cleanText(item.workload_level ?? item.workloadLevel, 40) ||
-            'Unknown',
-          workload_assessment: cleanText(
-            item.workload_assessment ?? item.workloadAssessment,
-            600,
-          ),
-          eligibility_checks: cleanStringArray(
-            item.eligibility_checks ?? item.eligibilityChecks,
-          ),
-          questions_to_verify: cleanStringArray(
-            item.questions_to_verify ?? item.questionsToVerify,
-          ),
-        }))
-    : [];
+  const recommendations = toRecommendationArray(rawRecommendations)
+    .map((item, index) => ({
+      item,
+      index,
+      opportunityId: getRecommendationOpportunityId(
+        item,
+        opportunityLookup,
+      ),
+    }))
+    .filter(({ opportunityId }) => opportunityId)
+    .sort((left, right) => {
+      const leftRank =
+        Number(
+          left.item.rank ??
+          left.item.ranking ??
+          left.item.position,
+        ) || left.index + 1;
+      const rightRank =
+        Number(
+          right.item.rank ??
+          right.item.ranking ??
+          right.item.position,
+        ) || right.index + 1;
+      return leftRank - rightRank;
+    })
+    .filter(
+      ({ opportunityId }, index, items) =>
+        items.findIndex(
+          (candidate) => candidate.opportunityId === opportunityId,
+        ) === index,
+    )
+    .map(({ item, opportunityId }, index) => ({
+      opportunity_id: opportunityId,
+      rank: index + 1,
+      fit_score: Math.max(
+        0,
+        Math.min(
+          100,
+          Number(item.fit_score ?? item.fitScore ?? item.score) || 0,
+        ),
+      ),
+      fit_label:
+        cleanText(item.fit_label ?? item.fitLabel, 60) ||
+        'Fit unclear',
+      reason: cleanText(
+        item.reason ?? item.rationale ?? item.explanation,
+        800,
+      ),
+      pros: cleanStringArray(item.pros),
+      cons: cleanStringArray(item.cons),
+      workload_level:
+        cleanText(item.workload_level ?? item.workloadLevel, 40) ||
+        'Unknown',
+      workload_assessment: cleanText(
+        item.workload_assessment ?? item.workloadAssessment,
+        600,
+      ),
+      eligibility_checks: cleanStringArray(
+        item.eligibility_checks ?? item.eligibilityChecks,
+      ),
+      questions_to_verify: cleanStringArray(
+        item.questions_to_verify ?? item.questionsToVerify,
+      ),
+    }));
 
   if (recommendations.length < 2) {
     throw new AdvisorServiceError(
@@ -406,8 +529,17 @@ function isAdvisorPayload(value) {
     return false;
   }
 
-  return ['recommendations', 'rankings', 'opportunities', 'matches'].some(
-    (key) => Array.isArray(value[key]),
+  return [
+    'recommendations',
+    'rankings',
+    'ranked_opportunities',
+    'rankedOpportunities',
+    'opportunities',
+    'matches',
+  ].some(
+    (key) =>
+      Array.isArray(value[key]) ||
+      (value[key] && typeof value[key] === 'object'),
   );
 }
 
@@ -541,7 +673,7 @@ async function callEstha(messages, timeoutMs = ADVISOR_GENERATION_TIMEOUT_MS) {
   }
 }
 
-function buildRepairMessages(messages, output, opportunityIds) {
+function buildRepairMessages(messages, output, opportunities) {
   const previousOutput =
     typeof output === 'string'
       ? output
@@ -560,7 +692,12 @@ function buildRepairMessages(messages, output, opportunityIds) {
         'Try once more and return exactly one valid JSON object.',
         'The first character must be { and the last character must be }.',
         'Do not include Markdown, an explanation, or any text outside the JSON object.',
-        `Include one recommendation for every opportunity ID: ${opportunityIds.join(', ')}.`,
+        `Include one recommendation for every opportunity in this exact ID/title list: ${JSON.stringify(
+          opportunities.map(({ id, title }) => ({
+            opportunity_id: id,
+            opportunity_title: title,
+          })),
+        )}.`,
       ].join(' '),
     },
   ];
@@ -663,9 +800,6 @@ export default async function handler(request, response) {
       opportunities,
       filters,
     });
-    const opportunityIdsForAnalysis = opportunities.map(
-      (opportunity) => opportunity.id,
-    );
     const generationStartedAt = Date.now();
     let output = await callEstha(
       messages,
@@ -674,7 +808,7 @@ export default async function handler(request, response) {
     let analysis;
 
     try {
-      analysis = parseAdvisorOutput(output, opportunityIdsForAnalysis);
+      analysis = parseAdvisorOutput(output, opportunities);
     } catch (error) {
       const remainingTime =
         ADVISOR_GENERATION_TIMEOUT_MS -
@@ -690,11 +824,11 @@ export default async function handler(request, response) {
         buildRepairMessages(
           messages,
           output,
-          opportunityIdsForAnalysis,
+          opportunities,
         ),
         remainingTime,
       );
-      analysis = parseAdvisorOutput(output, opportunityIdsForAnalysis);
+      analysis = parseAdvisorOutput(output, opportunities);
     }
 
     return sendJson(response, 200, {
