@@ -1011,6 +1011,7 @@ const HISTORICAL_URL_SEGMENTS = [
 ];
 
 const INFORMATIONAL_PUBLIC_WEB_TITLE_PATTERNS = [
+  /^a\*star i2r scientific attachment$/i,
   /^apply now(?:\s*[-|–—]\s*.*)?$/i,
   /^application info(?:rmation)?(?:\s*[-|–—]\s*.*)?$/i,
   /^awards and scholarships(?:\s*[-|–—]\s*.*)?$/i,

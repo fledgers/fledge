@@ -593,6 +593,31 @@ test("rejects support and directory pages even when navigation contains applicat
   }
 });
 
+test("rejects the retired A*STAR I2R scientific attachment listing", () => {
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: "astar-i2r-scientific-attachment",
+    school: "nus",
+    sourceId: "astar-scholarships",
+    sourceName: "A*STAR",
+    url: "https://www.a-star.edu.sg/i2r/JOIN-US/STUDENTS",
+    title: "A*STAR I2R Scientific Attachment",
+    summary: "A research attachment at the Institute for Infocomm Research.",
+    text: `
+      A research attachment of at least two months at the Institute for
+      Infocomm Research. Rolling applications.
+      Apply at https://www.a-star.edu.sg/i2r/JOIN-US/STUDENTS.
+    `,
+    defaultCategory: "research",
+    minScore: 1,
+    sourcePriority: 4,
+    sourceTrustBoost: 2,
+    trustedForNusStudents: false,
+    fetchedAt: "2026-08-03T00:00:00.000Z",
+  });
+
+  assert.equal(candidate, null);
+});
+
 test("keeps a specific NOC intake while rejecting NOC support pages", () => {
   const candidate = parseWebDocumentToOpportunityCandidate({
     id: "nus-noc-2027-intake",

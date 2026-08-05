@@ -4,6 +4,13 @@ const DEFAULT_ESTHA_API_URL =
   'https://studio.estha.ai/api/v1/open/chat/completions';
 const MAX_OPPORTUNITIES = 8;
 const MAX_FILTER_TEXT_LENGTH = 200;
+const ADVISOR_GENERATION_TIMEOUT_MS = 55_000;
+const MIN_RETRY_TIME_MS = 5_000;
+const RETRYABLE_OUTPUT_CODES = new Set([
+  'estha_invalid_format',
+  'estha_invalid_json',
+  'estha_incomplete_comparison',
+]);
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -190,26 +197,9 @@ export function buildAdvisorMessages({
 }
 
 export function extractEsthaOutput(payload) {
-  const candidates = [
-    payload?.choices?.[0]?.message?.content,
-    payload?.choices?.[0]?.text,
-    payload?.message?.content,
-    payload?.message,
-    payload?.output_text,
-    payload?.output,
-    payload?.response,
-    payload?.result,
-    payload?.data,
-    payload,
-  ];
+  const output = findEsthaCompletion(payload);
 
-  for (const candidate of candidates) {
-    const output = contentToText(candidate);
-
-    if (output) return output;
-
-    if (isAdvisorPayload(candidate)) return candidate;
-  }
+  if (output) return output;
 
   throw new AdvisorServiceError(
     'Estha returned an empty response. Try again.',
@@ -347,6 +337,70 @@ function contentToText(content) {
   return '';
 }
 
+function findEsthaCompletion(value, depth = 0, seen = new Set()) {
+  if (!value || depth > 6) return null;
+
+  if (typeof value === 'string') {
+    return value.trim() || null;
+  }
+
+  if (typeof value !== 'object' || seen.has(value)) return null;
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    const textOutput = contentToText(value);
+    if (textOutput) return textOutput;
+
+    for (const item of value) {
+      const nestedOutput = findEsthaCompletion(
+        item,
+        depth + 1,
+        seen,
+      );
+      if (nestedOutput) return nestedOutput;
+    }
+
+    return null;
+  }
+
+  if (isAdvisorPayload(value)) return value;
+
+  const choices = Array.isArray(value.choices) ? value.choices : [];
+  for (const choice of choices) {
+    const choiceOutput =
+      contentToText(choice?.message?.content) ||
+      contentToText(choice?.text);
+    if (choiceOutput) return choiceOutput;
+  }
+
+  const directOutput = contentToText(value.output_text);
+  if (directOutput) return directOutput;
+
+  // Estha deployments may wrap an OpenAI-compatible completion in one or
+  // more envelope objects. Inspect those before a top-level `message`, which
+  // is often only a status such as "Request successful".
+  for (const key of ['output', 'response', 'result', 'data']) {
+    const nestedOutput = findEsthaCompletion(
+      value[key],
+      depth + 1,
+      seen,
+    );
+    if (nestedOutput) return nestedOutput;
+  }
+
+  const messageContent = contentToText(value.message?.content);
+  if (messageContent) return messageContent;
+
+  for (const key of ['content', 'text', 'value']) {
+    const textOutput = contentToText(value[key]);
+    if (textOutput) return textOutput;
+  }
+
+  return typeof value.message === 'string'
+    ? value.message.trim() || null
+    : null;
+}
+
 function isAdvisorPayload(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false;
@@ -378,7 +432,7 @@ function unwrapAdvisorPayload(value) {
   return current;
 }
 
-async function callEstha(messages) {
+async function callEstha(messages, timeoutMs = ADVISOR_GENERATION_TIMEOUT_MS) {
   const apiKey =
     process.env.ESTHA_OPPORTUNITY_API_KEY ||
     process.env.ESTHA_API_KEY;
@@ -398,12 +452,16 @@ async function callEstha(messages) {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    Math.max(1, timeoutMs),
+  );
 
   try {
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
+        Accept: 'application/json',
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
@@ -481,6 +539,31 @@ async function callEstha(messages) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function buildRepairMessages(messages, output, opportunityIds) {
+  const previousOutput =
+    typeof output === 'string'
+      ? output
+      : JSON.stringify(output);
+
+  return [
+    ...messages,
+    {
+      role: 'assistant',
+      content: cleanText(previousOutput, 12_000),
+    },
+    {
+      role: 'user',
+      content: [
+        'That response could not be parsed.',
+        'Try once more and return exactly one valid JSON object.',
+        'The first character must be { and the last character must be }.',
+        'Do not include Markdown, an explanation, or any text outside the JSON object.',
+        `Include one recommendation for every opportunity ID: ${opportunityIds.join(', ')}.`,
+      ].join(' '),
+    },
+  ];
 }
 
 export default async function handler(request, response) {
@@ -580,11 +663,39 @@ export default async function handler(request, response) {
       opportunities,
       filters,
     });
-    const output = await callEstha(messages);
-    const analysis = parseAdvisorOutput(
-      output,
-      opportunities.map((opportunity) => opportunity.id),
+    const opportunityIdsForAnalysis = opportunities.map(
+      (opportunity) => opportunity.id,
     );
+    const generationStartedAt = Date.now();
+    let output = await callEstha(
+      messages,
+      ADVISOR_GENERATION_TIMEOUT_MS,
+    );
+    let analysis;
+
+    try {
+      analysis = parseAdvisorOutput(output, opportunityIdsForAnalysis);
+    } catch (error) {
+      const remainingTime =
+        ADVISOR_GENERATION_TIMEOUT_MS -
+        (Date.now() - generationStartedAt);
+      const canRetry =
+        error instanceof AdvisorServiceError &&
+        RETRYABLE_OUTPUT_CODES.has(error.code) &&
+        remainingTime >= MIN_RETRY_TIME_MS;
+
+      if (!canRetry) throw error;
+
+      output = await callEstha(
+        buildRepairMessages(
+          messages,
+          output,
+          opportunityIdsForAnalysis,
+        ),
+        remainingTime,
+      );
+      analysis = parseAdvisorOutput(output, opportunityIdsForAnalysis);
+    }
 
     return sendJson(response, 200, {
       analysis,
