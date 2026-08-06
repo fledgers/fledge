@@ -180,6 +180,7 @@ export function buildAdvisorMessages({
         'State uncertainty when workload, eligibility, cost, or timing is not supplied.',
         'Do not infer sensitive personal characteristics.',
         'Rank every supplied opportunity from best to least suitable.',
+        'For every recommendation, fit_score must be a JSON number from 0 to 100.',
         'Return valid JSON only, with no Markdown fences or commentary.',
         `Use this exact shape: ${JSON.stringify(outputShape)}`,
       ].join(' '),
@@ -347,6 +348,59 @@ function toRecommendationArray(rawRecommendations) {
     .filter(Boolean);
 }
 
+function parseFitScore(item) {
+  const rawScore =
+    item.fit_score ??
+    item.fitScore ??
+    item.match_score ??
+    item.matchScore ??
+    item.fit_percentage ??
+    item.fitPercentage ??
+    item.match_percentage ??
+    item.matchPercentage ??
+    item.compatibility_score ??
+    item.compatibilityScore ??
+    item.fit?.score ??
+    item.fit?.percentage ??
+    item.match?.score ??
+    item.score;
+
+  if (typeof rawScore !== 'number' && typeof rawScore !== 'string') {
+    return null;
+  }
+
+  const scoreText = String(rawScore).trim();
+  const scoreMatch = scoreText.match(/^(-?\d+(?:\.\d+)?)\s*(%)?$/);
+  if (!scoreMatch) return null;
+
+  let score = Number(scoreMatch[1]);
+  if (!Number.isFinite(score)) return null;
+
+  if (!scoreMatch[2] && score > 0 && score < 1) {
+    score *= 100;
+  }
+
+  return Math.round(Math.max(0, Math.min(100, score)) * 10) / 10;
+}
+
+function getFitLabel(item) {
+  const suitability =
+    typeof item.suitability === 'string' ? item.suitability : '';
+
+  return (
+    cleanText(
+      item.fit_label ??
+        item.fitLabel ??
+        item.match_label ??
+        item.matchLabel ??
+        item.fit?.label ??
+        item.fit?.rating ??
+        suitability,
+      60,
+    ) || 'Fit unclear'
+  );
+}
+
 export function parseAdvisorOutput(output, allowedOpportunities) {
   const parsed = unwrapAdvisorPayload(extractJsonObject(output));
   const opportunityLookup = buildOpportunityLookup(allowedOpportunities);
@@ -391,27 +445,35 @@ export function parseAdvisorOutput(output, allowedOpportunities) {
     .map(({ item, opportunityId }, index) => ({
       opportunity_id: opportunityId,
       rank: index + 1,
-      fit_score: Math.max(
-        0,
-        Math.min(
-          100,
-          Number(item.fit_score ?? item.fitScore ?? item.score) || 0,
-        ),
-      ),
-      fit_label:
-        cleanText(item.fit_label ?? item.fitLabel, 60) ||
-        'Fit unclear',
+      fit_score: parseFitScore(item),
+      fit_label: getFitLabel(item),
       reason: cleanText(
-        item.reason ?? item.rationale ?? item.explanation,
+        item.reason ??
+          item.rationale ??
+          item.explanation ??
+          item.fit_reason ??
+          item.fitReason ??
+          item.fit?.reason ??
+          item.why,
         800,
       ),
       pros: cleanStringArray(item.pros),
       cons: cleanStringArray(item.cons),
       workload_level:
-        cleanText(item.workload_level ?? item.workloadLevel, 40) ||
+        cleanText(
+          item.workload_level ??
+            item.workloadLevel ??
+            item.workload?.level ??
+            (typeof item.workload === 'string' ? item.workload : ''),
+          40,
+        ) ||
         'Unknown',
       workload_assessment: cleanText(
-        item.workload_assessment ?? item.workloadAssessment,
+        item.workload_assessment ??
+          item.workloadAssessment ??
+          item.workload?.assessment ??
+          item.workload?.reason ??
+          item.workload?.details,
         600,
       ),
       eligibility_checks: cleanStringArray(
@@ -688,10 +750,11 @@ function buildRepairMessages(messages, output, opportunities) {
     {
       role: 'user',
       content: [
-        'That response could not be parsed.',
+        'That response did not include every required comparison field in a usable format.',
         'Try once more and return exactly one valid JSON object.',
         'The first character must be { and the last character must be }.',
         'Do not include Markdown, an explanation, or any text outside the JSON object.',
+        'Every recommendation must include fit_score as a JSON number from 0 to 100, plus fit_label, reason, workload_level, and workload_assessment.',
         `Include one recommendation for every opportunity in this exact ID/title list: ${JSON.stringify(
           opportunities.map(({ id, title }) => ({
             opportunity_id: id,
@@ -806,20 +869,28 @@ export default async function handler(request, response) {
       ADVISOR_GENERATION_TIMEOUT_MS,
     );
     let analysis;
+    let parsingError = null;
 
     try {
       analysis = parseAdvisorOutput(output, opportunities);
     } catch (error) {
-      const remainingTime =
-        ADVISOR_GENERATION_TIMEOUT_MS -
-        (Date.now() - generationStartedAt);
-      const canRetry =
-        error instanceof AdvisorServiceError &&
-        RETRYABLE_OUTPUT_CODES.has(error.code) &&
-        remainingTime >= MIN_RETRY_TIME_MS;
+      parsingError = error;
+    }
 
-      if (!canRetry) throw error;
+    const remainingTime =
+      ADVISOR_GENERATION_TIMEOUT_MS -
+      (Date.now() - generationStartedAt);
+    const hasMissingScores = analysis?.recommendations.some(
+      (recommendation) => recommendation.fit_score === null,
+    );
+    const canRetryParsingError =
+      parsingError instanceof AdvisorServiceError &&
+      RETRYABLE_OUTPUT_CODES.has(parsingError.code);
+    const shouldRetry =
+      remainingTime >= MIN_RETRY_TIME_MS &&
+      (canRetryParsingError || hasMissingScores);
 
+    if (shouldRetry) {
       output = await callEstha(
         buildRepairMessages(
           messages,
@@ -830,6 +901,8 @@ export default async function handler(request, response) {
       );
       analysis = parseAdvisorOutput(output, opportunities);
     }
+
+    if (parsingError && !analysis) throw parsingError;
 
     return sendJson(response, 200, {
       analysis,

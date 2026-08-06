@@ -88,6 +88,7 @@
 }
 
 .advisor-profile-note,
+.advisor-score-note,
 .advisor-error,
 .advisor-general-advice {
   display: flex;
@@ -103,6 +104,11 @@
 .advisor-profile-note {
   background: #f5f2ed;
   color: #55554f;
+}
+
+.advisor-score-note {
+  background: #fff6df;
+  color: #725116;
 }
 
 .advisor-error {
@@ -207,6 +213,11 @@
 .advisor-score {
   background: #ffe9de;
   color: #a9380f;
+}
+
+.advisor-score--unavailable {
+  background: #f0ede8;
+  color: #55554f;
 }
 
 .advisor-fit-label {

@@ -137,6 +137,65 @@ test('accepts recommendations keyed by opportunity ID', () => {
   );
 });
 
+test('normalizes percentage, fractional, and nested fit fields', () => {
+  const result = parseAdvisorOutput(
+    JSON.stringify({
+      recommendations: [
+        {
+          opportunity_id: FIRST_ID,
+          rank: 1,
+          match_percentage: '82%',
+          match_label: 'Strong match',
+          fit_reason: 'Matches the selected interests.',
+          workload: {
+            level: 'Moderate',
+            assessment: 'About six hours each week.',
+          },
+        },
+        {
+          opportunity_id: SECOND_ID,
+          rank: 2,
+          fit: {
+            score: 0.74,
+            label: 'Good fit',
+            reason: 'Relevant to the stated goal.',
+          },
+        },
+      ],
+    }),
+    [FIRST_ID, SECOND_ID],
+  );
+
+  assert.equal(result.recommendations[0].fit_score, 82);
+  assert.equal(result.recommendations[0].fit_label, 'Strong match');
+  assert.equal(
+    result.recommendations[0].reason,
+    'Matches the selected interests.',
+  );
+  assert.equal(result.recommendations[0].workload_level, 'Moderate');
+  assert.equal(
+    result.recommendations[0].workload_assessment,
+    'About six hours each week.',
+  );
+  assert.equal(result.recommendations[1].fit_score, 74);
+  assert.equal(result.recommendations[1].fit_label, 'Good fit');
+});
+
+test('distinguishes a missing fit score from a genuine zero score', () => {
+  const result = parseAdvisorOutput(
+    JSON.stringify({
+      recommendations: [
+        { opportunity_id: FIRST_ID, rank: 1 },
+        { opportunity_id: SECOND_ID, rank: 2, fit_score: 0 },
+      ],
+    }),
+    [FIRST_ID, SECOND_ID],
+  );
+
+  assert.equal(result.recommendations[0].fit_score, null);
+  assert.equal(result.recommendations[1].fit_score, 0);
+});
+
 test('does not attach a title-only recommendation when titles are ambiguous', () => {
   assert.throws(
     () =>

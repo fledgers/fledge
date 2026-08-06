@@ -100,6 +100,10 @@ export default function OpportunityAdvisor({
   }
 
   if (status === 'result' && result?.analysis) {
+    const hasUnavailableScores = result.analysis.recommendations.some(
+      recommendation => !Number.isFinite(recommendation.fit_score)
+    );
+
     return (
       <section className="opportunity-advisor opportunity-advisor--result">
         <div className="advisor-heading">
@@ -122,30 +126,66 @@ export default function OpportunityAdvisor({
           </button>
         </div>
 
+        {!profileReady && (
+          <div className="advisor-profile-note">
+            <UserRound aria-hidden="true" size={18} />
+            <span>
+              This ranking uses limited profile information, so treat it as
+              preliminary.{' '}
+              <button onClick={() => navigate('/profile')} type="button">
+                Complete your profile
+              </button>{' '}
+              and compare again for a more personal result.
+            </span>
+          </div>
+        )}
+
+        {hasUnavailableScores && (
+          <div className="advisor-score-note" role="status">
+            <AlertTriangle aria-hidden="true" size={18} />
+            <span>
+              Estha ranked these options qualitatively but did not provide a valid
+              fit percentage for every option. Missing scores are marked as unavailable,
+              not zero.
+            </span>
+          </div>
+        )}
+
         <div className="advisor-rankings">
           {result.analysis.recommendations.map(recommendation => {
             const opportunity = opportunitiesById.get(recommendation.opportunity_id);
             if (!opportunity) return null;
+            const scoreAvailable = Number.isFinite(recommendation.fit_score);
 
             return (
               <article className="advisor-ranking" key={recommendation.opportunity_id}>
                 <div className="advisor-ranking__topline">
                   <span className="advisor-rank">#{recommendation.rank}</span>
-                  <span className="advisor-score">
-                    {recommendation.fit_score}% fit
+                  <span
+                    className={`advisor-score${
+                      scoreAvailable ? '' : ' advisor-score--unavailable'
+                    }`}
+                  >
+                    {scoreAvailable
+                      ? `${recommendation.fit_score}% fit`
+                      : 'Score unavailable'}
                   </span>
                   <span className="advisor-fit-label">
                     {recommendation.fit_label}
                   </span>
                 </div>
                 <h3>{opportunity.title}</h3>
-                <p className="advisor-reason">{recommendation.reason}</p>
+                {recommendation.reason && (
+                  <p className="advisor-reason">{recommendation.reason}</p>
+                )}
 
                 <div className="advisor-workload">
                   <Clock3 aria-hidden="true" size={17} />
                   <span>
-                    <strong>{recommendation.workload_level} workload:</strong>{' '}
-                    {recommendation.workload_assessment}
+                    <strong>{recommendation.workload_level} workload</strong>
+                    {recommendation.workload_assessment && (
+                      <>: {recommendation.workload_assessment}</>
+                    )}
                   </span>
                 </div>
 
