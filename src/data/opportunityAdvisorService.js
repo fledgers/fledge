@@ -3,6 +3,7 @@ import { isSupabaseConfigured, supabase } from '../lib/supabase';
 export async function compareFilteredOpportunities({
   opportunityIds,
   filters,
+  preferenceMessages = [],
 }) {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Supabase is not configured for this website.');
@@ -28,6 +29,7 @@ export async function compareFilteredOpportunities({
     body: JSON.stringify({
       opportunityIds,
       filters,
+      preferenceMessages,
     }),
   });
 

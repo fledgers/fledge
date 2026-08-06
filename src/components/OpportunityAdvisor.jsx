@@ -4,9 +4,12 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  MessageCircle,
   RefreshCw,
   Scale,
+  Send,
   Sparkles,
+  Trash2,
   UserRound,
   X,
 } from 'lucide-react';
@@ -20,6 +23,8 @@ const RECOMMENDATION_PROFILE_FIELDS = [
   'opportunity_interests',
   'career_goals',
 ];
+const MAX_PREFERENCE_LENGTH = 1_000;
+const MAX_PREFERENCE_MESSAGES = 8;
 
 function hasRecommendationProfile(profile) {
   return RECOMMENDATION_PROFILE_FIELDS.some(field => {
@@ -43,6 +48,89 @@ function RecommendationList({ label, items, tone }) {
   );
 }
 
+function PreferenceComposer({
+  draft,
+  history,
+  isLoading,
+  onChange,
+  onClear,
+  onSubmit,
+  user,
+}) {
+  return (
+    <section className="advisor-conversation" aria-labelledby="advisor-preference-title">
+      <div className="advisor-conversation__heading">
+        <MessageCircle aria-hidden="true" size={19} />
+        <div>
+          <h3 id="advisor-preference-title">Tell Fledge AI what matters to you</h3>
+          <p>
+            Add your priorities, concerns or ideas. Each message updates the comparison;
+            your newest preference takes priority if your preferences conflict.
+          </p>
+        </div>
+      </div>
+
+      {history.length > 0 && (
+        <div className="advisor-conversation__history" aria-label="Your preferences">
+          {history.map((message, index) => (
+            <div className="advisor-user-message" key={`${message}-${index}`}>
+              <strong>You</strong>
+              <span>{message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <form className="advisor-preference-form" onSubmit={onSubmit}>
+        <label className="sr-only" htmlFor="advisor-preference-input">
+          Your preferences for this comparison
+        </label>
+        <textarea
+          id="advisor-preference-input"
+          maxLength={MAX_PREFERENCE_LENGTH}
+          onChange={event => onChange(event.target.value)}
+          placeholder="For example: I prefer a shorter programme, my budget is S$2,000, and industry exposure matters more than location."
+          rows={3}
+          value={draft}
+        />
+        <div className="advisor-preference-form__footer">
+          <span>{draft.length}/{MAX_PREFERENCE_LENGTH}</span>
+          <div className="advisor-preference-form__actions">
+            {history.length > 0 && (
+              <button
+                className="advisor-text-button"
+                disabled={isLoading}
+                onClick={onClear}
+                type="button"
+              >
+                <Trash2 aria-hidden="true" size={15} />
+                Clear preferences
+              </button>
+            )}
+            <button
+              className="advisor-primary-button"
+              disabled={isLoading || !draft.trim()}
+              type="submit"
+            >
+              {isLoading ? (
+                <>
+                  <RefreshCw aria-hidden="true" className="advisor-spinner" size={16} />
+                  Updating comparison
+                </>
+              ) : (
+                <>
+                  <Send aria-hidden="true" size={16} />
+                  {user ? 'Apply my preferences' : 'Sign in to ask'}
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </form>
+    </section>
+  );
+}
+
 export default function OpportunityAdvisor({
   filters,
   opportunities,
@@ -54,6 +142,8 @@ export default function OpportunityAdvisor({
   const [status, setStatus] = useState('prompt');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [preferenceDraft, setPreferenceDraft] = useState('');
+  const [preferenceHistory, setPreferenceHistory] = useState([]);
 
   const opportunitiesById = useMemo(
     () => new Map(opportunities.map(opportunity => [opportunity.id, opportunity])),
@@ -61,7 +151,7 @@ export default function OpportunityAdvisor({
   );
   const profileReady = hasRecommendationProfile(profile);
 
-  async function runComparison() {
+  async function runComparison(preferenceMessages = preferenceHistory) {
     if (!user) {
       navigate('/login');
       return;
@@ -74,6 +164,7 @@ export default function OpportunityAdvisor({
       const payload = await compareFilteredOpportunities({
         opportunityIds: opportunities.map(opportunity => opportunity.id),
         filters,
+        preferenceMessages,
       });
       setResult(payload);
       setStatus('result');
@@ -84,7 +175,28 @@ export default function OpportunityAdvisor({
       }
 
       setError(comparisonError.message);
-      setStatus('error');
+      setStatus(result ? 'result' : 'error');
+    }
+  }
+
+  async function submitPreference(event) {
+    event.preventDefault();
+    const preference = preferenceDraft.trim();
+    if (!preference) return;
+
+    const updatedHistory = [...preferenceHistory, preference]
+      .slice(-MAX_PREFERENCE_MESSAGES);
+    setPreferenceHistory(updatedHistory);
+    setPreferenceDraft('');
+    await runComparison(updatedHistory);
+  }
+
+  async function clearPreferences() {
+    setPreferenceHistory([]);
+    setPreferenceDraft('');
+
+    if (result) {
+      await runComparison([]);
     }
   }
 
@@ -99,7 +211,7 @@ export default function OpportunityAdvisor({
     );
   }
 
-  if (status === 'result' && result?.analysis) {
+  if ((status === 'result' || status === 'loading') && result?.analysis) {
     const hasUnavailableScores = result.analysis.recommendations.some(
       recommendation => !Number.isFinite(recommendation.fit_score)
     );
@@ -150,6 +262,39 @@ export default function OpportunityAdvisor({
             </span>
           </div>
         )}
+
+        {error && (
+          <div className="advisor-error" role="alert">
+            <AlertTriangle aria-hidden="true" size={18} />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {result.analysis.ranking_basis && (
+          <div className="advisor-ranking-basis">
+            <Scale aria-hidden="true" size={19} />
+            <div>
+              <strong>Why this order</strong>
+              <p>{result.analysis.ranking_basis}</p>
+              {result.analysis.preference_summary && (
+                <p className="advisor-preference-impact">
+                  <strong>How your preferences affected it:</strong>{' '}
+                  {result.analysis.preference_summary}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <PreferenceComposer
+          draft={preferenceDraft}
+          history={preferenceHistory}
+          isLoading={status === 'loading'}
+          onChange={setPreferenceDraft}
+          onClear={clearPreferences}
+          onSubmit={submitPreference}
+          user={user}
+        />
 
         <div className="advisor-rankings">
           {result.analysis.recommendations.map(recommendation => {
@@ -225,9 +370,14 @@ export default function OpportunityAdvisor({
         )}
 
         <div className="advisor-result-actions">
-          <button className="advisor-secondary-button" onClick={runComparison} type="button">
+          <button
+            className="advisor-secondary-button"
+            disabled={status === 'loading'}
+            onClick={() => runComparison()}
+            type="button"
+          >
             <RefreshCw aria-hidden="true" size={16} />
-            Compare again
+            {status === 'loading' ? 'Updating comparison' : 'Compare again'}
           </button>
           {!profileReady && (
             <button
@@ -286,16 +436,27 @@ export default function OpportunityAdvisor({
         </div>
       )}
 
+      <PreferenceComposer
+        draft={preferenceDraft}
+        history={preferenceHistory}
+        isLoading={status === 'loading'}
+        onChange={setPreferenceDraft}
+        onClear={clearPreferences}
+        onSubmit={submitPreference}
+        user={user}
+      />
+
       <p className="advisor-privacy-note">
         Estha receives the selected Fledge listing details and your recommendation
-        profile for this comparison. It does not search online reviews or the wider web.
+        profile, filters and messages for this comparison. It does not search online
+        reviews or the wider web. Your messages are not saved to your profile.
       </p>
 
       <div className="advisor-actions">
         <button
           className="advisor-primary-button"
           disabled={status === 'loading'}
-          onClick={runComparison}
+          onClick={() => runComparison()}
           type="button"
         >
           {status === 'loading' ? (

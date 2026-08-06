@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   AdvisorServiceError,
+  buildAdvisorMessages,
   extractEsthaOutput,
   parseAdvisorOutput,
+  validateAdvisorRequest,
 } from './opportunity-advisor.js';
 
 const FIRST_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -13,6 +15,7 @@ const THIRD_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 function comparisonJson() {
   return JSON.stringify({
     overview: 'Two useful options.',
+    ranking_basis: 'The second option aligns more closely with the goal.',
     recommendations: [
       {
         opportunity_id: FIRST_ID,
@@ -32,6 +35,45 @@ function comparisonJson() {
     general_advice: 'Check both deadlines.',
   });
 }
+
+test('cleans and limits conversational preference messages', () => {
+  const preferenceMessages = Array.from(
+    { length: 10 },
+    (_, index) => `  Preference   ${index}  `,
+  );
+  const result = validateAdvisorRequest({
+    opportunityIds: [FIRST_ID, SECOND_ID],
+    preferenceMessages,
+  });
+
+  assert.deepEqual(
+    result.preferenceMessages,
+    preferenceMessages.slice(-8).map((message) => message.replace(/\s+/g, ' ').trim()),
+  );
+});
+
+test('includes preference messages and comparative reasoning in the prompt', () => {
+  const messages = buildAdvisorMessages({
+    filters: { categories: ['Exchange'] },
+    opportunities: [
+      { id: FIRST_ID, title: 'First opportunity' },
+      { id: SECOND_ID, title: 'Second opportunity' },
+    ],
+    preferenceMessages: [
+      'I prefer a shorter programme.',
+      'Cost matters more than location.',
+    ],
+    profile: null,
+  });
+  const prompt = JSON.parse(messages[1].content);
+
+  assert.deepEqual(prompt.student_preference_messages, [
+    'I prefer a shorter programme.',
+    'Cost matters more than location.',
+  ]);
+  assert.match(messages[0].content, /why the first option ranks above/i);
+  assert.match(messages[0].content, /most recent message/i);
+});
 
 test('extracts a direct OpenAI-compatible Estha completion', () => {
   const output = extractEsthaOutput({
