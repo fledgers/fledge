@@ -1402,12 +1402,26 @@ export function scoreOpportunityText(text) {
   return score;
 }
 
-function detectCategory(text, fallbackCategory = "other", priorityText = "") {
+function detectCategory(
+  text,
+  fallbackCategory = "other",
+  priorityText = "",
+  { preferDefaultCategory = false } = {}
+) {
   const lowerPriorityText = priorityText.toLowerCase();
   if (lowerPriorityText) {
     for (const rule of CATEGORY_RULES) {
       if (includesAny(lowerPriorityText, rule.keywords)) return rule.category;
     }
+  }
+
+  // Documents reached through a category-specific directory (for example,
+  // an SEP partner-university PDF) inherit that source's category. Their body
+  // often lists unrelated things the university also offers, such as research
+  // or internships; those incidental mentions must not reclassify the record.
+  // An explicit programme type in the linked document's title still wins.
+  if (preferDefaultCategory && fallbackCategory !== "other") {
+    return fallbackCategory;
   }
 
   const lowerText = text.toLowerCase();
@@ -2113,6 +2127,7 @@ export function parseTextToOpportunityCandidate({
   unknownYearWhenUnstated = true,
   ownerUserId = null,
   hostCountry = null,
+  preferDefaultCategory = false,
 }) {
   const text = normalizeWhitespace(
     [title, descriptionText, fullText].filter(Boolean).join(" ")
@@ -2150,7 +2165,9 @@ export function parseTextToOpportunityCandidate({
     return null;
   }
 
-  const category = detectCategory(text, defaultCategory, title);
+  const category = detectCategory(text, defaultCategory, title, {
+    preferDefaultCategory,
+  });
   const deliveryMode = deliveryModeOverride || detectDeliveryMode(text);
   const yearRange = detectYearRange(text, { unknownWhenUnstated: unknownYearWhenUnstated });
   const majorEligibility = detectMajorEligibility(text, {
@@ -2392,6 +2409,7 @@ export function parseWebDocumentToOpportunityCandidate(document) {
       detailOverrides.requireExplicitMajorEligibility || false,
     unknownYearWhenUnstated: detailOverrides.unknownYearWhenUnstated ?? true,
     hostCountry: document.hostCountry || null,
+    preferDefaultCategory: document.programmeDetails || false,
   });
 }
 

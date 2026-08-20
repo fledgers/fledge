@@ -73,6 +73,7 @@ test('includes preference messages and comparative reasoning in the prompt', () 
   ]);
   assert.match(messages[0].content, /why the first option ranks above/i);
   assert.match(messages[0].content, /most recent message/i);
+  assert.match(messages[0].content, /fit_score in descending order/i);
 });
 
 test('extracts a direct OpenAI-compatible Estha completion', () => {
@@ -113,7 +114,7 @@ test('accepts an already structured advisor payload', () => {
   assert.equal(extractEsthaOutput({ data: payload }), payload);
 });
 
-test('parses and orders valid recommendations by model-supplied rank', () => {
+test('parses recommendations whose ranks agree with their fit scores', () => {
   const result = parseAdvisorOutput(comparisonJson(), [FIRST_ID, SECOND_ID]);
 
   assert.equal(result.recommendations.length, 2);
@@ -121,6 +122,75 @@ test('parses and orders valid recommendations by model-supplied rank', () => {
   assert.equal(result.recommendations[0].rank, 1);
   assert.equal(result.recommendations[1].opportunity_id, FIRST_ID);
   assert.equal(result.recommendations[1].rank, 2);
+  assert.equal(result.ranking_was_corrected, false);
+});
+
+test('corrects inconsistent model ranks using descending fit score', () => {
+  const result = parseAdvisorOutput(
+    JSON.stringify({
+      ranking_basis: 'The short programme was originally placed first.',
+      recommendations: [
+        {
+          opportunity_id: FIRST_ID,
+          rank: 1,
+          fit_score: 55,
+          reason: 'Short and experiential.',
+        },
+        {
+          opportunity_id: SECOND_ID,
+          rank: 2,
+          fit_score: 85,
+          reason: 'Strong semester exchange.',
+        },
+        {
+          opportunity_id: THIRD_ID,
+          rank: 3,
+          fit_score: 90,
+          reason: 'Strongest overall fit.',
+        },
+      ],
+    }),
+    [
+      { id: FIRST_ID, title: 'STEER India: Mumbai & Agra' },
+      { id: SECOND_ID, title: 'University of New South Wales' },
+      { id: THIRD_ID, title: 'Incoming Exchange Students' },
+    ],
+  );
+
+  assert.deepEqual(
+    result.recommendations.map(({ opportunity_id, rank, fit_score }) => ({
+      opportunity_id,
+      rank,
+      fit_score,
+    })),
+    [
+      { opportunity_id: THIRD_ID, rank: 1, fit_score: 90 },
+      { opportunity_id: SECOND_ID, rank: 2, fit_score: 85 },
+      { opportunity_id: FIRST_ID, rank: 3, fit_score: 55 },
+    ],
+  );
+  assert.equal(result.ranking_was_corrected, true);
+  assert.match(result.ranking_basis, /Incoming Exchange Students ranks first/);
+  assert.match(result.ranking_basis, /90% fit score/);
+});
+
+test('uses model rank only to break equal fit scores', () => {
+  const result = parseAdvisorOutput(
+    JSON.stringify({
+      ranking_basis: 'The second option wins the tie on stated preferences.',
+      recommendations: [
+        { opportunity_id: FIRST_ID, rank: 2, fit_score: 80 },
+        { opportunity_id: SECOND_ID, rank: 1, fit_score: 80 },
+      ],
+    }),
+    [FIRST_ID, SECOND_ID],
+  );
+
+  assert.deepEqual(
+    result.recommendations.map(({ opportunity_id }) => opportunity_id),
+    [SECOND_ID, FIRST_ID],
+  );
+  assert.equal(result.ranking_was_corrected, false);
 });
 
 test('normalizes common Estha ID fields and exact listing titles', () => {
@@ -234,8 +304,10 @@ test('distinguishes a missing fit score from a genuine zero score', () => {
     [FIRST_ID, SECOND_ID],
   );
 
-  assert.equal(result.recommendations[0].fit_score, null);
-  assert.equal(result.recommendations[1].fit_score, 0);
+  assert.equal(result.recommendations[0].opportunity_id, SECOND_ID);
+  assert.equal(result.recommendations[0].fit_score, 0);
+  assert.equal(result.recommendations[1].opportunity_id, FIRST_ID);
+  assert.equal(result.recommendations[1].fit_score, null);
 });
 
 test('does not attach a title-only recommendation when titles are ambiguous', () => {

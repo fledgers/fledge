@@ -205,8 +205,9 @@ export function buildAdvisorMessages({
         'State uncertainty when workload, eligibility, cost, or timing is not supplied.',
         'Do not infer sensitive personal characteristics.',
         'Rank every supplied opportunity from best to least suitable.',
+        'Ranks must follow fit_score in descending order: rank 1 must have the highest fit_score. Use the stated preferences to break score ties.',
         'Explain why the first option ranks above the closest alternatives in ranking_basis.',
-        'For each recommendation, reason must justify that position relative to the other supplied options.',
+        'For each recommendation, reason must explain its fit and key differentiators without referring to a numeric rank.',
         'Give listing-specific pros and cons that reflect the student preferences and supplied facts.',
         'For every recommendation, fit_score must be a JSON number from 0 to 100.',
         'Return valid JSON only, with no Markdown fences or commentary.',
@@ -319,7 +320,14 @@ function buildOpportunityLookup(allowedOpportunities) {
       .filter(([title]) => title && titleCounts.get(title) === 1),
   );
 
-  return { ids, uniqueTitles };
+  const titlesById = new Map(
+    normalizedOpportunities.map((opportunity) => [
+      opportunity.id,
+      cleanText(opportunity.title, 300),
+    ]),
+  );
+
+  return { ids, titlesById, uniqueTitles };
 }
 
 function getRecommendationOpportunityId(item, lookup) {
@@ -430,6 +438,46 @@ function getFitLabel(item) {
   );
 }
 
+function getModelRank(item, fallbackRank) {
+  const rank = Number(item.rank ?? item.ranking ?? item.position);
+  return Number.isFinite(rank) && rank > 0 ? rank : fallbackRank;
+}
+
+function compareRecommendations(left, right) {
+  const leftHasScore = left.fitScore !== null;
+  const rightHasScore = right.fitScore !== null;
+
+  if (leftHasScore && rightHasScore && left.fitScore !== right.fitScore) {
+    return right.fitScore - left.fitScore;
+  }
+
+  if (leftHasScore !== rightHasScore) {
+    return leftHasScore ? -1 : 1;
+  }
+
+  return left.modelRank - right.modelRank || left.index - right.index;
+}
+
+function buildCorrectedRankingBasis(recommendations, opportunityLookup) {
+  const scoredRecommendations = recommendations.filter(
+    (recommendation) => recommendation.fit_score !== null,
+  );
+
+  if (scoredRecommendations.length < 2) {
+    return 'Options with a valid fit score are shown before options whose score is unavailable. Equal or unavailable scores retain Estha\'s qualitative order.';
+  }
+
+  const [first, second] = scoredRecommendations;
+  const firstTitle =
+    opportunityLookup.titlesById.get(first.opportunity_id) ||
+    'The first option';
+  const secondTitle =
+    opportunityLookup.titlesById.get(second.opportunity_id) ||
+    'the second option';
+
+  return `${firstTitle} ranks first because its ${first.fit_score}% fit score is higher than ${secondTitle}'s ${second.fit_score}%. The remaining options are also ordered from highest to lowest fit score; equal scores retain Estha's qualitative order.`;
+}
+
 export function parseAdvisorOutput(output, allowedOpportunities) {
   const parsed = unwrapAdvisorPayload(extractJsonObject(output));
   const opportunityLookup = buildOpportunityLookup(allowedOpportunities);
@@ -440,41 +488,43 @@ export function parseAdvisorOutput(output, allowedOpportunities) {
     parsed.rankedOpportunities ??
     parsed.opportunities ??
     parsed.matches;
-  const recommendations = toRecommendationArray(rawRecommendations)
+  const matchedRecommendations = toRecommendationArray(rawRecommendations)
     .map((item, index) => ({
       item,
       index,
+      fitScore: parseFitScore(item),
+      modelRank: getModelRank(item, index + 1),
       opportunityId: getRecommendationOpportunityId(
         item,
         opportunityLookup,
       ),
     }))
     .filter(({ opportunityId }) => opportunityId)
-    .sort((left, right) => {
-      const leftRank =
-        Number(
-          left.item.rank ??
-          left.item.ranking ??
-          left.item.position,
-        ) || left.index + 1;
-      const rightRank =
-        Number(
-          right.item.rank ??
-          right.item.ranking ??
-          right.item.position,
-        ) || right.index + 1;
-      return leftRank - rightRank;
-    })
     .filter(
       ({ opportunityId }, index, items) =>
         items.findIndex(
           (candidate) => candidate.opportunityId === opportunityId,
         ) === index,
+    );
+  const modelOrder = [...matchedRecommendations]
+    .sort(
+      (left, right) =>
+        left.modelRank - right.modelRank || left.index - right.index,
     )
-    .map(({ item, opportunityId }, index) => ({
+    .map(({ opportunityId }) => opportunityId);
+  const scoreOrderedRecommendations = [...matchedRecommendations]
+    .sort(compareRecommendations);
+  const scoreOrder = scoreOrderedRecommendations.map(
+    ({ opportunityId }) => opportunityId,
+  );
+  const rankingWasCorrected = modelOrder.some(
+    (opportunityId, index) => opportunityId !== scoreOrder[index],
+  );
+  const recommendations = scoreOrderedRecommendations
+    .map(({ item, opportunityId, fitScore }, index) => ({
       opportunity_id: opportunityId,
       rank: index + 1,
-      fit_score: parseFitScore(item),
+      fit_score: fitScore,
       fit_label: getFitLabel(item),
       reason: cleanText(
         item.reason ??
@@ -520,15 +570,20 @@ export function parseAdvisorOutput(output, allowedOpportunities) {
     );
   }
 
+  const suppliedRankingBasis = cleanText(
+    parsed.ranking_basis ??
+      parsed.rankingBasis ??
+      parsed.comparison_reason ??
+      parsed.comparisonReason,
+    1_200,
+  );
+
   return {
     overview: cleanText(parsed.overview ?? parsed.summary, 1_000),
-    ranking_basis: cleanText(
-      parsed.ranking_basis ??
-        parsed.rankingBasis ??
-        parsed.comparison_reason ??
-        parsed.comparisonReason,
-      1_200,
-    ),
+    ranking_basis: rankingWasCorrected
+      ? buildCorrectedRankingBasis(recommendations, opportunityLookup)
+      : suppliedRankingBasis,
+    ranking_was_corrected: rankingWasCorrected,
     preference_summary: cleanText(
       parsed.preference_summary ??
         parsed.preferenceSummary ??
@@ -798,7 +853,8 @@ function buildRepairMessages(messages, output, opportunities) {
         'The first character must be { and the last character must be }.',
         'Do not include Markdown, an explanation, or any text outside the JSON object.',
         'Include ranking_basis explaining why rank 1 beats the closest alternatives and preference_summary explaining how the student messages affected the result.',
-        'Every recommendation must include fit_score as a JSON number from 0 to 100, plus fit_label, a position-specific reason, pros, cons, workload_level, and workload_assessment.',
+        'Ranks and fit scores must agree: order recommendations by descending fit_score, with the highest score at rank 1.',
+        'Every recommendation must include fit_score as a JSON number from 0 to 100, plus fit_label, a reason explaining fit and key differentiators, pros, cons, workload_level, and workload_assessment.',
         `Include one recommendation for every opportunity in this exact ID/title list: ${JSON.stringify(
           opportunities.map(({ id, title }) => ({
             opportunity_id: id,
@@ -930,6 +986,7 @@ export default async function handler(request, response) {
     const hasIncompleteExplanation =
       analysis &&
       (!analysis.ranking_basis ||
+        analysis.ranking_was_corrected ||
         analysis.recommendations.some(
           (recommendation) =>
             recommendation.fit_score === null ||

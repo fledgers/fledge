@@ -367,6 +367,64 @@ test("keeps a summer session in the summer-programme category", () => {
   assert.equal(candidate.opportunity.category, "summer_programme");
 });
 
+test("keeps an SEP partner information sheet in the exchange category", () => {
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: "nus-gro-sep-partner-universities:melbourne",
+    school: "nus",
+    sourceId: "nus-gro-sep-partner-universities",
+    sourceName: "NUS Global Relations - SEP Partner Universities",
+    url: "https://nus.edu.sg/gro/docs/default-source/prog/sep/pu/au/sep_australia_melbourne.pdf",
+    applicationUrl: "https://myedurec.nus.edu.sg/apply",
+    title: "University of Melbourne",
+    summary: "Student Exchange Programme partner information sheet.",
+    text: `
+      University of Melbourne Student Exchange Programme partner information.
+      NUS undergraduate students may apply through EduRec by 1 October 2026.
+      The university also has research institutes and internship opportunities.
+      Exchange students take a normal semester course load and transfer credits.
+    `,
+    documentFormat: "pdf",
+    programmeDetails: true,
+    defaultCategory: "exchange",
+    minScore: 3,
+    sourcePriority: 1,
+    sourceTrustBoost: 3,
+    trustedForNusStudents: true,
+    fetchedAt: "2026-08-20T00:00:00.000Z",
+  });
+
+  assert.ok(candidate);
+  assert.equal(candidate.opportunity.category, "exchange");
+});
+
+test("allows an explicit linked-document title to override its source category", () => {
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: "mixed-directory:research-programme",
+    school: "nus",
+    sourceId: "mixed-directory",
+    sourceName: "NUS Global Relations",
+    url: "https://nus.edu.sg/gro/docs/summer-undergraduate-research.pdf",
+    applicationUrl: "https://partner.example/apply",
+    title: "Summer Undergraduate Research Programme 2026",
+    summary: "A research programme for undergraduate students.",
+    text: `
+      Summer Undergraduate Research Programme 2026. NUS undergraduate
+      students may apply by 1 October 2026 at https://partner.example/apply.
+    `,
+    documentFormat: "pdf",
+    programmeDetails: true,
+    defaultCategory: "exchange",
+    minScore: 3,
+    sourcePriority: 1,
+    sourceTrustBoost: 3,
+    trustedForNusStudents: true,
+    fetchedAt: "2026-08-20T00:00:00.000Z",
+  });
+
+  assert.ok(candidate);
+  assert.equal(candidate.opportunity.category, "research");
+});
+
 test("parses a STEER PDF as one specific trip with its own details URL", () => {
   const sourceUrl =
     "https://nus.edu.sg/gro/docs/default-source/prog/steer/steer-mumbai-and-agra.pdf";
