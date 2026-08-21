@@ -13,6 +13,7 @@ export const WEB_DISCOVERY_QUERIES = [
   "Singapore university students competition hackathon applications open",
   "undergraduate research attachment Singapore application deadline",
   "undergraduate scholarship Singapore applications open deadline",
+  "student project grant fund Singapore applications open deadline",
   "summer winter programme university students Asia application deadline",
   "student exchange study trip Singapore university application",
   "community volunteer entrepreneurship programme Singapore university students",

@@ -425,6 +425,86 @@ test("allows an explicit linked-document title to override its source category",
   assert.equal(candidate.opportunity.category, "research");
 });
 
+test("classifies a community project fund by its funding mechanism", () => {
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: "nyc-programmes-grants:sg-partnerships-fund-seed",
+    school: "nus",
+    sourceId: "nyc-programmes-grants",
+    sourceName: "National Youth Council Programmes and Grants",
+    url: "https://www.nyc.gov.sg/programmes-grants/sg-partnerships-fund-seed",
+    applicationUrl: "https://www.nyc.gov.sg/apply/sg-partnerships-fund-seed",
+    title: "SG Partnerships Fund (Seed)",
+    summary: "Funding for a community project.",
+    text: `
+      SG Partnerships Fund (Seed) provides funding of up to S$5,000 for
+      individuals or ground-up groups testing a non-profit pilot project that
+      benefits the Singapore community. NUS students may apply on a rolling basis.
+    `,
+    defaultCategory: "community",
+    minScore: 1,
+    sourcePriority: 4,
+    sourceTrustBoost: 2,
+    trustedForNusStudents: true,
+    fetchedAt: "2026-08-21T00:00:00.000Z",
+  });
+
+  assert.ok(candidate);
+  assert.equal(candidate.opportunity.category, "funding");
+});
+
+test("classifies a changemaker grant as funding rather than community", () => {
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: "nyc-young-changemakers:grant",
+    school: "nus",
+    sourceId: "nyc-young-changemakers",
+    sourceName: "NYC Young ChangeMakers",
+    url: "https://www.nyc.gov.sg/programmes-grants/programmes/young-changemakers/",
+    applicationUrl: "https://www.nyc.gov.sg/apply/young-changemakers",
+    title: "Young ChangeMakers Grant",
+    summary: "Funding for youth-initiated community projects.",
+    text: `
+      Young ChangeMakers Grant supports youth-initiated projects that benefit
+      the Singapore community. Standard projects can receive up to S$3,000.
+      Open to NUS students. Applications are accepted on a rolling basis.
+    `,
+    defaultCategory: "community",
+    minScore: 1,
+    sourcePriority: 4,
+    sourceTrustBoost: 2,
+    trustedForNusStudents: true,
+    fetchedAt: "2026-08-21T00:00:00.000Z",
+  });
+
+  assert.ok(candidate);
+  assert.equal(candidate.opportunity.category, "funding");
+});
+
+test("does not mistake grant education for a funding opportunity", () => {
+  const candidate = parseWebDocumentToOpportunityCandidate({
+    id: "community-training:grant-writing",
+    school: "nus",
+    sourceId: "community-training",
+    sourceName: "Community Training Centre",
+    url: "https://example.org/grant-writing",
+    applicationUrl: "https://example.org/grant-writing/register",
+    title: "Community Grant Writing Workshop",
+    summary: "Learn to prepare proposals for community initiatives.",
+    text: `
+      Community Grant Writing Workshop for university students. Register by
+      30 September 2026 at https://example.org/grant-writing/register.
+    `,
+    defaultCategory: "community",
+    minScore: 1,
+    sourcePriority: 4,
+    sourceTrustBoost: 1,
+    trustedForNusStudents: true,
+    fetchedAt: "2026-08-21T00:00:00.000Z",
+  });
+
+  assert.ok(candidate);
+  assert.equal(candidate.opportunity.category, "community");
+});
+
 test("parses a STEER PDF as one specific trip with its own details URL", () => {
   const sourceUrl =
     "https://nus.edu.sg/gro/docs/default-source/prog/steer/steer-mumbai-and-agra.pdf";

@@ -3,6 +3,7 @@ export const CATEGORIES = [
   { key: 'internship', label: 'Internships' },
   { key: 'competition', label: 'Competitions' },
   { key: 'scholarship', label: 'Scholarships' },
+  { key: 'funding', label: 'Funding & Grants' },
   { key: 'research', label: 'Research' },
   { key: 'exchange', label: 'Exchange' },
   { key: 'summer_programme', label: 'Summer Programmes' },

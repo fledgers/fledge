@@ -35,6 +35,31 @@ const CATEGORY_RULES = [
     ],
   },
   {
+    category: "funding",
+    // A fund or grant is the opportunity mechanism. Words such as
+    // "community" and "research" describe what the funded project supports,
+    // so explicit funding titles must be checked before those themes.
+    priorityKeywords: ["grant", "grants", "fund", "funds", "funding"],
+    excludedPriorityKeywords: [
+      "grant seminar",
+      "grant workshop",
+      "grant writing",
+      "fund management",
+      "investment fund",
+    ],
+    keywords: [
+      "awards grants",
+      "funding available",
+      "funding of up to",
+      "grant funding",
+      "project funding",
+      "provides funding",
+      "provides grants",
+      "receive funding",
+      "seed funding",
+    ],
+  },
+  {
     category: "volunteer",
     keywords: ["volunteer", "volunteering", "community service", "charity"],
   },
@@ -1411,7 +1436,14 @@ function detectCategory(
   const lowerPriorityText = priorityText.toLowerCase();
   if (lowerPriorityText) {
     for (const rule of CATEGORY_RULES) {
-      if (includesAny(lowerPriorityText, rule.keywords)) return rule.category;
+      const priorityKeywords = rule.priorityKeywords || rule.keywords;
+      const excludedPriorityKeywords = rule.excludedPriorityKeywords || [];
+      if (
+        !includesAny(lowerPriorityText, excludedPriorityKeywords) &&
+        includesAny(lowerPriorityText, priorityKeywords)
+      ) {
+        return rule.category;
+      }
     }
   }
 
