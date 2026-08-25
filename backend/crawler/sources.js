@@ -404,7 +404,7 @@ const crawlerSourceConfig = [
     url: "https://www.nyc.gov.sg/programmes-grants/programmes/young-changemakers/",
     enabled: true,
     allowedHosts: NYC_HOSTS,
-    defaultCategory: "funding",
+    defaultCategory: "scholarship",
     sourceTrustBoost: 2,
     targetAudience: "nus_students",
     requiresNusStudentEligibility: true,

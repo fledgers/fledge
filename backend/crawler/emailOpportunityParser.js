@@ -24,7 +24,9 @@ const CATEGORY_RULES = [
   },
   {
     category: "scholarship",
-    keywords: [
+    // Displayed as "Scholarships & Awards". Grants and funds belong here even
+    // when their supported project has a community or research theme.
+    priorityKeywords: [
       "scholarship",
       "scholarships",
       "bursary",
@@ -32,14 +34,12 @@ const CATEGORY_RULES = [
       "financial aid",
       "study award",
       "study awards",
+      "grant",
+      "grants",
+      "fund",
+      "funds",
+      "funding",
     ],
-  },
-  {
-    category: "funding",
-    // A fund or grant is the opportunity mechanism. Words such as
-    // "community" and "research" describe what the funded project supports,
-    // so explicit funding titles must be checked before those themes.
-    priorityKeywords: ["grant", "grants", "fund", "funds", "funding"],
     excludedPriorityKeywords: [
       "grant seminar",
       "grant workshop",
@@ -48,6 +48,13 @@ const CATEGORY_RULES = [
       "investment fund",
     ],
     keywords: [
+      "scholarship",
+      "scholarships",
+      "bursary",
+      "bursaries",
+      "financial aid",
+      "study award",
+      "study awards",
       "awards grants",
       "funding available",
       "funding of up to",

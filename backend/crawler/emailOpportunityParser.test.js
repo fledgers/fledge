@@ -425,7 +425,7 @@ test("allows an explicit linked-document title to override its source category",
   assert.equal(candidate.opportunity.category, "research");
 });
 
-test("classifies a community project fund by its funding mechanism", () => {
+test("classifies a community project fund as a scholarship or award", () => {
   const candidate = parseWebDocumentToOpportunityCandidate({
     id: "nyc-programmes-grants:sg-partnerships-fund-seed",
     school: "nus",
@@ -449,10 +449,10 @@ test("classifies a community project fund by its funding mechanism", () => {
   });
 
   assert.ok(candidate);
-  assert.equal(candidate.opportunity.category, "funding");
+  assert.equal(candidate.opportunity.category, "scholarship");
 });
 
-test("classifies a changemaker grant as funding rather than community", () => {
+test("classifies a changemaker grant as an award rather than community", () => {
   const candidate = parseWebDocumentToOpportunityCandidate({
     id: "nyc-young-changemakers:grant",
     school: "nus",
@@ -476,10 +476,10 @@ test("classifies a changemaker grant as funding rather than community", () => {
   });
 
   assert.ok(candidate);
-  assert.equal(candidate.opportunity.category, "funding");
+  assert.equal(candidate.opportunity.category, "scholarship");
 });
 
-test("does not mistake grant education for a funding opportunity", () => {
+test("does not mistake grant education for a scholarship or award", () => {
   const candidate = parseWebDocumentToOpportunityCandidate({
     id: "community-training:grant-writing",
     school: "nus",

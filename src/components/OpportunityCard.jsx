@@ -16,7 +16,6 @@ const iconBg = {
   internship: '#FEF0E7',
   competition: '#FFF8E1',
   scholarship: '#FFF8E1',
-  funding: '#E8F5E9',
   research: '#E8F0FE',
   exchange: '#F3E8FF',
   summer_programme: '#E8F5E9',

@@ -151,7 +151,6 @@ function getCategoryIcon(category) {
     internship: "💼",
     competition: "⚡",
     scholarship: "🏅",
-    funding: "💰",
     research: "🔬",
     exchange: "✈️",
     summer_programme: "☀️",
