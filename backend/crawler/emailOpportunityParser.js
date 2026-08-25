@@ -1611,6 +1611,7 @@ const PROGRAMME_FIELD_LABELS = [
   "Estimated Cost of Participation",
   "Application Process",
 ];
+const PROGRAMME_DETAILS_EXTRACTION_REVISION = "programme-details-v2-cost-evidence";
 
 function extractLabeledValue(text, labels) {
   for (const label of labels) {
@@ -2032,7 +2033,16 @@ function extractRequirementSnippets(text) {
   return [...new Set(snippets)];
 }
 
-function buildProgrammeDescription({ title, organisation, location, dates, courseInfo }) {
+function buildProgrammeDescription({
+  title,
+  organisation,
+  location,
+  dates,
+  courseInfo,
+  programmeFee,
+  financialAid,
+  estimatedCost,
+}) {
   const details = [];
   const host = organisation || "a partner university";
 
@@ -2044,7 +2054,13 @@ function buildProgrammeDescription({ title, organisation, location, dates, cours
     details.push(`Course information: ${courseInfo.slice(0, 220)}.`);
   }
 
-  return details.join(" ").slice(0, 700);
+  if (programmeFee) details.push(`Programme fee: ${programmeFee}.`);
+  if (financialAid) details.push(`Financial aid: ${financialAid}.`);
+  if (estimatedCost) {
+    details.push(`Estimated cost of participation: ${estimatedCost}.`);
+  }
+
+  return details.join(" ").slice(0, 1_200);
 }
 
 function getProgrammeDetailOverrides(document, fallbackEligibility) {
@@ -2055,6 +2071,11 @@ function getProgrammeDetailOverrides(document, fallbackEligibility) {
   const courseInfo = extractLabeledValue(document.text, [
     "Courses Available In",
     "Course Information",
+  ]);
+  const programmeFee = extractLabeledValue(document.text, ["Programme Fee"]);
+  const financialAid = extractLabeledValue(document.text, ["Financial Aid"]);
+  const estimatedCost = extractLabeledValue(document.text, [
+    "Estimated Cost of Participation",
   ]);
   const organisation =
     extractHostOrganisation(document.title, document.text) || document.sourceName;
@@ -2076,6 +2097,9 @@ function getProgrammeDetailOverrides(document, fallbackEligibility) {
       location,
       dates,
       courseInfo,
+      programmeFee,
+      financialAid,
+      estimatedCost,
     }),
     eligibility: requirements.length ? requirements.join(" ") : fallbackEligibility,
     deliveryMode,
@@ -2167,6 +2191,7 @@ export function parseTextToOpportunityCandidate({
   ownerUserId = null,
   hostCountry = null,
   preferDefaultCategory = false,
+  extractionRevision = "",
 }) {
   const text = normalizeWhitespace(
     [title, descriptionText, fullText].filter(Boolean).join(" ")
@@ -2250,7 +2275,9 @@ export function parseTextToOpportunityCandidate({
   const listingExpiresAt = !deadline && applicationUrl
     ? addDaysToIsoTimestamp(normalizedLastSeenAt, 60)
     : null;
-  const contentHash = createContentHash(text);
+  const contentHash = createContentHash(
+    [text, extractionRevision].filter(Boolean).join(" ")
+  );
   const yearRequirementsStated = hasExplicitYearRequirement(text);
   const confidenceScore = calculateConfidenceScore({
     title: resolvedTitle,
@@ -2449,6 +2476,9 @@ export function parseWebDocumentToOpportunityCandidate(document) {
     unknownYearWhenUnstated: detailOverrides.unknownYearWhenUnstated ?? true,
     hostCountry: document.hostCountry || null,
     preferDefaultCategory: document.programmeDetails || false,
+    extractionRevision: document.programmeDetails
+      ? PROGRAMME_DETAILS_EXTRACTION_REVISION
+      : "",
   });
 }
 

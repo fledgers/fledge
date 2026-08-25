@@ -62,10 +62,10 @@ function PreferenceComposer({
       <div className="advisor-conversation__heading">
         <MessageCircle aria-hidden="true" size={19} />
         <div>
-          <h3 id="advisor-preference-title">Tell Fledge AI what matters to you</h3>
+          <h3 id="advisor-preference-title">Tell Fledge AI how to rank these results</h3>
           <p>
-            Add your priorities, concerns or ideas. Each message updates the comparison;
-            your newest preference takes priority if your preferences conflict.
+            Add priorities such as cost, timing or location. This reranks the results in
+            this comparison; use the filters above to change the opportunity grid.
           </p>
         </div>
       </div>
@@ -89,7 +89,7 @@ function PreferenceComposer({
           id="advisor-preference-input"
           maxLength={MAX_PREFERENCE_LENGTH}
           onChange={event => onChange(event.target.value)}
-          placeholder="For example: I prefer a shorter programme, my budget is S$2,000, and industry exposure matters more than location."
+          placeholder="For example: Rank the lowest-cost winter programmes first. My budget is S$2,000."
           rows={3}
           value={draft}
         />
@@ -120,7 +120,7 @@ function PreferenceComposer({
               ) : (
                 <>
                   <Send aria-hidden="true" size={16} />
-                  {user ? 'Apply my preferences' : 'Sign in to ask'}
+                  {user ? 'Rerank these results' : 'Sign in to ask'}
                 </>
               )}
             </button>
@@ -301,6 +301,11 @@ export default function OpportunityAdvisor({
             const opportunity = opportunitiesById.get(recommendation.opportunity_id);
             if (!opportunity) return null;
             const scoreAvailable = Number.isFinite(recommendation.fit_score);
+            const workloadAvailable = Boolean(
+              recommendation.workload_assessment
+                || (recommendation.workload_level
+                  && recommendation.workload_level.toLowerCase() !== 'unknown')
+            );
 
             return (
               <article className="advisor-ranking" key={recommendation.opportunity_id}>
@@ -324,15 +329,17 @@ export default function OpportunityAdvisor({
                   <p className="advisor-reason">{recommendation.reason}</p>
                 )}
 
-                <div className="advisor-workload">
-                  <Clock3 aria-hidden="true" size={17} />
-                  <span>
-                    <strong>{recommendation.workload_level} workload</strong>
-                    {recommendation.workload_assessment && (
-                      <>: {recommendation.workload_assessment}</>
-                    )}
-                  </span>
-                </div>
+                {workloadAvailable && (
+                  <div className="advisor-workload">
+                    <Clock3 aria-hidden="true" size={17} />
+                    <span>
+                      <strong>{recommendation.workload_level} workload</strong>
+                      {recommendation.workload_assessment && (
+                        <>: {recommendation.workload_assessment}</>
+                      )}
+                    </span>
+                  </div>
+                )}
 
                 <div className="advisor-details-grid">
                   <RecommendationList
@@ -404,7 +411,8 @@ export default function OpportunityAdvisor({
           <h2>Want help comparing these opportunities?</h2>
           <p>
             Fledge AI can rank the first {opportunities.length} of {totalCount}{' '}
-            matching opportunities using your filters and recommendation profile.
+            matching opportunities using your filters, preferences and recommendation
+            profile.
           </p>
         </div>
         <button
@@ -467,7 +475,11 @@ export default function OpportunityAdvisor({
           ) : (
             <>
               <Sparkles aria-hidden="true" size={17} />
-              {user ? 'Compare with AI' : 'Sign in to compare'}
+              {user
+                ? status === 'error'
+                  ? 'Try ranking again'
+                  : 'Rank with AI'
+                : 'Sign in to compare'}
             </>
           )}
         </button>

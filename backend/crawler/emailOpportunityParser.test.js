@@ -300,6 +300,9 @@ test("parses an NUS partner winter-programme PDF as a specific opportunity", () 
       Programme Dates: 26 December 2026 to 9 January 2027
       Application Period: 1 September to 18 October 2026
       No. of Placements: To be determined by host university
+      Programme Fee: KRW 900,000
+      Financial Aid: NUS students may apply for the NASA bursary
+      Estimated Cost of Participation: S$1,400 excluding flights
       Information on this page is for on-site programme only.
       NUS generic eligibility requirements apply. NUS students should apply for in-person course(s) if course mapping is needed.
       All majors / disciplines.
@@ -328,11 +331,47 @@ test("parses an NUS partner winter-programme PDF as a specific opportunity", () 
   assert.equal(candidate.opportunity.year_min, null);
   assert.equal(candidate.opportunity.year_max, null);
   assert.deepEqual(candidate.opportunity.eligible_majors, []);
+  assert.match(candidate.opportunity.description, /Programme fee: KRW 900,000/i);
+  assert.match(candidate.opportunity.description, /Financial aid: NUS students may apply/i);
+  assert.match(candidate.opportunity.description, /Estimated cost of participation: S\$1,400/i);
   assert.match(candidate.opportunity.eligibility, /generic eligibility requirements/i);
   assert.equal(candidate.content_hash.length, 64);
   assert.equal(candidate.opportunity.content_hash, candidate.content_hash);
   assert.ok(candidate.review_reasons.includes("missing_application_url"));
   assert.ok(candidate.review_reasons.includes("missing_source_published_at"));
+});
+
+test("versions programme-detail extraction so published cost data is refreshed", () => {
+  const document = {
+    id: "winter-cost-refresh",
+    school: "nus",
+    sourceName: "NUS Global Relations",
+    url: "https://nus.edu.sg/gro/docs/winter-cost-refresh.pdf",
+    title: "Partner University Winter Programme",
+    summary: "",
+    text: `
+      Partner University Winter Programme
+      Programme Dates: 10 December 2026 to 20 December 2026
+      Application Deadline: 18 October 2026
+      Programme Fee: S$1,250
+      Open to university students.
+    `,
+    documentFormat: "pdf",
+    defaultCategory: "winter_programme",
+    minScore: 1,
+    requiresNusStudentEligibility: false,
+    fetchedAt: "2026-07-14T00:00:00.000Z",
+  };
+  const genericCandidate = parseWebDocumentToOpportunityCandidate(document);
+  const programmeCandidate = parseWebDocumentToOpportunityCandidate({
+    ...document,
+    programmeDetails: true,
+  });
+
+  assert.ok(genericCandidate);
+  assert.ok(programmeCandidate);
+  assert.notEqual(genericCandidate.content_hash, programmeCandidate.content_hash);
+  assert.match(programmeCandidate.opportunity.description, /Programme fee: S\$1,250/i);
 });
 
 test("keeps a summer session in the summer-programme category", () => {

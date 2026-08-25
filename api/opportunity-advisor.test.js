@@ -74,6 +74,41 @@ test('includes preference messages and comparative reasoning in the prompt', () 
   assert.match(messages[0].content, /why the first option ranks above/i);
   assert.match(messages[0].content, /most recent message/i);
   assert.match(messages[0].content, /fit_score in descending order/i);
+  assert.match(messages[0].content, /Never assume that missing cost information means free or cheap/i);
+});
+
+test('keeps cost evidence while compacting opportunity records and output', () => {
+  const longDescription = `Programme fee: S$1,250. ${'Course detail. '.repeat(300)}`;
+  const messages = buildAdvisorMessages({
+    filters: { categories: ['winter_programme'] },
+    opportunities: [
+      {
+        id: FIRST_ID,
+        title: 'Affordable Winter School',
+        category: 'winter_programme',
+        description: longDescription,
+        eligible_majors: ['computer_science'],
+        source_url: 'https://example.com/should-not-be-sent',
+      },
+      {
+        id: SECOND_ID,
+        title: 'Second Winter School',
+        category: 'winter_programme',
+        description: 'Programme fee is not stated.',
+      },
+    ],
+    preferenceMessages: ['Rank the lowest-cost winter programmes first.'],
+    profile: null,
+  });
+  const prompt = JSON.parse(messages[1].content);
+  const outputShapeText = messages[0].content;
+
+  assert.match(prompt.opportunities[0].description, /Programme fee: S\$1,250/);
+  assert.ok(prompt.opportunities[0].description.length <= 1_600);
+  assert.deepEqual(prompt.opportunities[0].eligible_majors, ['computer_science']);
+  assert.equal(prompt.opportunities[0].source_url, undefined);
+  assert.doesNotMatch(outputShapeText, /eligibility_checks/);
+  assert.doesNotMatch(outputShapeText, /workload_assessment/);
 });
 
 test('extracts a direct OpenAI-compatible Estha completion', () => {
