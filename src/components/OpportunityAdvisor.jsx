@@ -1,10 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
-  Clock3,
-  ExternalLink,
   MessageCircle,
   RefreshCw,
   Scale,
@@ -15,7 +13,6 @@ import {
   X,
 } from 'lucide-react';
 import { compareFilteredOpportunities } from '../data/opportunityAdvisorService';
-import { getOpportunityDetailsUrl } from '../utils/formatOpportunity';
 import './OpportunityAdvisor.css';
 
 const RECOMMENDATION_PROFILE_FIELDS = [
@@ -33,21 +30,6 @@ function hasRecommendationProfile(profile) {
     const value = profile?.[field];
     return Array.isArray(value) ? value.length > 0 : Boolean(value);
   });
-}
-
-function RecommendationList({ label, items, tone }) {
-  if (!items?.length) return null;
-
-  return (
-    <div className={`advisor-detail advisor-detail--${tone}`}>
-      <strong>{label}</strong>
-      <ul>
-        {items.map((item, index) => (
-          <li key={`${label}-${index}`}>{item}</li>
-        ))}
-      </ul>
-    </div>
-  );
 }
 
 function PreferenceComposer({
@@ -135,6 +117,7 @@ function PreferenceComposer({
 
 export default function OpportunityAdvisor({
   filters,
+  onAnalysisChange,
   opportunities,
   profile,
   totalCount,
@@ -146,11 +129,7 @@ export default function OpportunityAdvisor({
   const [error, setError] = useState('');
   const [preferenceDraft, setPreferenceDraft] = useState('');
   const [preferenceHistory, setPreferenceHistory] = useState([]);
-
-  const opportunitiesById = useMemo(
-    () => new Map(opportunities.map(opportunity => [opportunity.id, opportunity])),
-    [opportunities]
-  );
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
   const profileReady = hasRecommendationProfile(profile);
 
   async function runComparison(preferenceMessages = preferenceHistory) {
@@ -169,6 +148,8 @@ export default function OpportunityAdvisor({
         preferenceMessages,
       });
       setResult(payload);
+      onAnalysisChange?.(payload.analysis);
+      setIsComposerOpen(false);
       setStatus('result');
     } catch (comparisonError) {
       if (comparisonError.code === 'AUTH_REQUIRED') {
@@ -202,11 +183,26 @@ export default function OpportunityAdvisor({
     }
   }
 
+  function hideComparison() {
+    setStatus('dismissed');
+    onAnalysisChange?.(null);
+  }
+
+  function showComparison() {
+    if (result?.analysis) {
+      setStatus('result');
+      onAnalysisChange?.(result.analysis);
+      return;
+    }
+
+    setStatus('prompt');
+  }
+
   if (status === 'dismissed') {
     return (
       <section className="opportunity-advisor opportunity-advisor--dismissed">
         <span>AI comparison hidden for these results.</span>
-        <button type="button" onClick={() => setStatus('prompt')}>
+        <button type="button" onClick={showComparison}>
           Show comparison
         </button>
       </section>
@@ -226,13 +222,16 @@ export default function OpportunityAdvisor({
           </div>
           <div>
             <span className="advisor-eyebrow">Fledge AI comparison</span>
-            <h2>Which opportunity fits you best?</h2>
-            <p>{result.analysis.overview}</p>
+            <h2>AI ranking applied to your opportunities</h2>
+            <p>
+              {result.analysis.overview}{' '}
+              Ranks and reasons are shown directly on the cards below.
+            </p>
           </div>
           <button
             aria-label="Hide AI comparison"
             className="advisor-icon-button"
-            onClick={() => setStatus('dismissed')}
+            onClick={hideComparison}
             title="Hide comparison"
             type="button"
           >
@@ -288,112 +287,17 @@ export default function OpportunityAdvisor({
           </div>
         )}
 
-        <PreferenceComposer
-          draft={preferenceDraft}
-          history={preferenceHistory}
-          isLoading={status === 'loading'}
-          onChange={setPreferenceDraft}
-          onClear={clearPreferences}
-          onSubmit={submitPreference}
-          user={user}
-        />
-
-        <div className="advisor-rankings">
-          {result.analysis.recommendations.map(recommendation => {
-            const opportunity = opportunitiesById.get(recommendation.opportunity_id);
-            if (!opportunity) return null;
-            const detailsUrl = getOpportunityDetailsUrl(opportunity);
-            const scoreAvailable = Number.isFinite(recommendation.fit_score);
-            const workloadAvailable = Boolean(
-              recommendation.workload_assessment
-                || (recommendation.workload_level
-                  && recommendation.workload_level.toLowerCase() !== 'unknown')
-            );
-
-            return (
-              <article className="advisor-ranking" key={recommendation.opportunity_id}>
-                <div className="advisor-ranking__topline">
-                  <span className="advisor-rank">#{recommendation.rank}</span>
-                  <span
-                    className={`advisor-score${
-                      scoreAvailable ? '' : ' advisor-score--unavailable'
-                    }`}
-                  >
-                    {scoreAvailable
-                      ? `${recommendation.fit_score}% fit`
-                      : 'Score unavailable'}
-                  </span>
-                  <span className="advisor-fit-label">
-                    {recommendation.fit_label}
-                  </span>
-                </div>
-                <h3>{opportunity.title}</h3>
-                {recommendation.reason && (
-                  <p className="advisor-reason">{recommendation.reason}</p>
-                )}
-
-                {workloadAvailable && (
-                  <div className="advisor-workload">
-                    <Clock3 aria-hidden="true" size={17} />
-                    <span>
-                      <strong>{recommendation.workload_level} workload</strong>
-                      {recommendation.workload_assessment && (
-                        <>: {recommendation.workload_assessment}</>
-                      )}
-                    </span>
-                  </div>
-                )}
-
-                <div className="advisor-details-grid">
-                  <RecommendationList
-                    items={recommendation.pros}
-                    label="Advantages"
-                    tone="positive"
-                  />
-                  <RecommendationList
-                    items={recommendation.cons}
-                    label="Trade-offs"
-                    tone="caution"
-                  />
-                </div>
-
-                <RecommendationList
-                  items={recommendation.eligibility_checks}
-                  label="Eligibility to verify"
-                  tone="neutral"
-                />
-                <RecommendationList
-                  items={recommendation.questions_to_verify}
-                  label="Questions to check"
-                  tone="neutral"
-                />
-
-                <div className="advisor-ranking__action">
-                  {detailsUrl ? (
-                    <a
-                      aria-label={`View details for ${opportunity.title}`}
-                      className="advisor-view-details"
-                      href={detailsUrl}
-                      rel="noopener noreferrer"
-                      target="_blank"
-                    >
-                      <ExternalLink aria-hidden="true" size={16} />
-                      View Details
-                    </a>
-                  ) : (
-                    <button
-                      className="advisor-view-details"
-                      disabled
-                      type="button"
-                    >
-                      Details unavailable
-                    </button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
+        {isComposerOpen && (
+          <PreferenceComposer
+            draft={preferenceDraft}
+            history={preferenceHistory}
+            isLoading={status === 'loading'}
+            onChange={setPreferenceDraft}
+            onClear={clearPreferences}
+            onSubmit={submitPreference}
+            user={user}
+          />
+        )}
 
         {result.analysis.general_advice && (
           <div className="advisor-general-advice">
@@ -404,13 +308,22 @@ export default function OpportunityAdvisor({
 
         <div className="advisor-result-actions">
           <button
+            className="advisor-primary-button"
+            disabled={status === 'loading'}
+            onClick={() => setIsComposerOpen(current => !current)}
+            type="button"
+          >
+            <MessageCircle aria-hidden="true" size={16} />
+            {isComposerOpen ? 'Hide ranking preferences' : 'Adjust AI ranking'}
+          </button>
+          <button
             className="advisor-secondary-button"
             disabled={status === 'loading'}
             onClick={() => runComparison()}
             type="button"
           >
             <RefreshCw aria-hidden="true" size={16} />
-            {status === 'loading' ? 'Updating comparison' : 'Compare again'}
+            {status === 'loading' ? 'Updating comparison' : 'Refresh ranking'}
           </button>
           {!profileReady && (
             <button
@@ -444,7 +357,7 @@ export default function OpportunityAdvisor({
         <button
           aria-label="Hide AI comparison"
           className="advisor-icon-button"
-          onClick={() => setStatus('dismissed')}
+          onClick={hideComparison}
           title="Hide comparison"
           type="button"
         >
@@ -512,7 +425,7 @@ export default function OpportunityAdvisor({
         <button
           className="advisor-secondary-button"
           disabled={status === 'loading'}
-          onClick={() => setStatus('dismissed')}
+          onClick={hideComparison}
           type="button"
         >
           Not now

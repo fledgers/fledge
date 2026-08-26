@@ -4,7 +4,7 @@
 // (fixed the spacing issue from the mockup).
 
 import { useState } from 'react';
-import { Flag } from 'lucide-react';
+import { Flag, Sparkles } from 'lucide-react';
 import OpportunityReportDialog from './OpportunityReportDialog';
 import {
   getEligibilityWarning,
@@ -39,7 +39,14 @@ const badgeStyles = {
   'Check eligibility': { background: '#FFF1CC', color: '#765400' },
 };
 
-export default function OpportunityCard({ opportunity, isBookmarked, onBookmark, highlight, topPick }) {
+export default function OpportunityCard({
+  aiRecommendation,
+  opportunity,
+  isBookmarked,
+  onBookmark,
+  highlight,
+  topPick,
+}) {
   const [reportOpen, setReportOpen] = useState(false);
   const {
     id, title, category, organisation, description,
@@ -51,6 +58,7 @@ export default function OpportunityCard({ opportunity, isBookmarked, onBookmark,
   const displayedBadge = eligibilityWarning ? 'Check eligibility' : badge;
   const detailsUrl = getOpportunityDetailsUrl(opportunity);
   const detailsUnavailable = !detailsUrl;
+  const aiScoreAvailable = Number.isFinite(aiRecommendation?.fit_score);
 
   return (
     <div style={{
@@ -124,6 +132,31 @@ export default function OpportunityCard({ opportunity, isBookmarked, onBookmark,
         </div>
       </div>
 
+      {aiRecommendation && (
+        <div
+          aria-label={`Fledge AI rank ${aiRecommendation.rank}`}
+          style={{
+            alignItems: 'center', background: '#FFF0E9', borderRadius: '9px',
+            color: '#A9380F', display: 'flex', flexWrap: 'wrap', gap: '7px',
+            marginBottom: '12px', padding: '8px 10px',
+          }}
+        >
+          <Sparkles aria-hidden="true" size={15} />
+          <strong style={{ fontSize: '11px' }}>#{aiRecommendation.rank} AI match</strong>
+          <span style={{
+            background: '#FFFFFF', borderRadius: '10px', color: '#A9380F',
+            fontSize: '10px', fontWeight: 700, padding: '3px 7px',
+          }}>
+            {aiScoreAvailable ? `${aiRecommendation.fit_score}% fit` : 'Fit score unavailable'}
+          </span>
+          {aiRecommendation.fit_label && (
+            <span style={{ color: '#6B554B', fontSize: '10px', fontWeight: 700 }}>
+              {aiRecommendation.fit_label}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Badge */}
       <span style={{
         display: 'inline-block', fontSize: '10px', padding: '3px 9px',
@@ -147,6 +180,18 @@ export default function OpportunityCard({ opportunity, isBookmarked, onBookmark,
       <div style={{ fontSize: '13px', color: '#5a5a52', lineHeight: 1.5, marginBottom: '12px' }}>
         {description}
       </div>
+
+      {aiRecommendation?.reason && (
+        <div style={{
+          background: '#FFF8F4', borderRadius: '7px', color: '#5A4034',
+          fontSize: '11px', lineHeight: 1.5, marginBottom: '12px', padding: '9px 10px',
+        }}>
+          <strong style={{ color: '#A9380F', display: 'block', marginBottom: '3px' }}>
+            Why Fledge AI ranked this
+          </strong>
+          {aiRecommendation.reason}
+        </div>
+      )}
 
       {!expired && eligibilityWarning && (
         <div

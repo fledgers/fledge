@@ -1,5 +1,5 @@
 .opportunity-advisor {
-  margin: 0 48px 22px;
+  margin: 0 0 22px;
   padding: 22px;
   border: 1px solid #d7d0c7;
   border-left: 4px solid #d64e16;
@@ -20,7 +20,10 @@
 }
 
 .opportunity-advisor--result {
-  background: #fffdfb;
+  padding: 18px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff7f2;
 }
 
 .opportunity-advisor--dismissed {
@@ -133,9 +136,9 @@
   align-items: flex-start;
   margin-top: 16px;
   padding: 14px;
-  border: 1px solid #e2c8b9;
+  border: 0;
   border-radius: 7px;
-  background: #fff8f4;
+  background: rgb(255 255 255 / 70%);
   color: #4f3b31;
   font-size: 13px;
   line-height: 1.55;
@@ -324,171 +327,6 @@
   animation: advisor-spin 0.9s linear infinite;
 }
 
-.advisor-rankings {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 20px;
-}
-
-.advisor-ranking {
-  display: flex;
-  flex-direction: column;
-  padding: 18px;
-  border: 1px solid #d8d1c8;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.advisor-ranking:first-child {
-  border-color: #d64e16;
-  box-shadow: inset 0 3px 0 #d64e16;
-}
-
-.advisor-ranking__topline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  align-items: center;
-  min-height: 24px;
-}
-
-.advisor-rank,
-.advisor-score,
-.advisor-fit-label {
-  padding: 4px 7px;
-  border-radius: 5px;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.advisor-rank {
-  background: #1a1a18;
-  color: #fff;
-}
-
-.advisor-score {
-  background: #ffe9de;
-  color: #a9380f;
-}
-
-.advisor-score--unavailable {
-  background: #f0ede8;
-  color: #55554f;
-}
-
-.advisor-fit-label {
-  background: #f0ede8;
-  color: #55554f;
-}
-
-.advisor-ranking h3 {
-  margin: 13px 0 6px;
-  font-family: 'Fraunces', serif;
-  font-size: 19px;
-  font-weight: 600;
-}
-
-.advisor-reason {
-  margin: 0;
-  color: #55554f;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.advisor-workload {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  margin-top: 13px;
-  padding: 10px;
-  border-radius: 6px;
-  background: #f5f2ed;
-  color: #4f4f49;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.advisor-details-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 14px;
-}
-
-.advisor-detail {
-  margin-top: 13px;
-  color: #505049;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.advisor-details-grid .advisor-detail {
-  margin-top: 0;
-}
-
-.advisor-detail strong {
-  color: #292925;
-}
-
-.advisor-detail ul {
-  margin: 6px 0 0;
-  padding-left: 17px;
-}
-
-.advisor-detail li + li {
-  margin-top: 4px;
-}
-
-.advisor-detail--positive li::marker {
-  color: #417548;
-}
-
-.advisor-detail--caution li::marker {
-  color: #c44716;
-}
-
-.advisor-view-details {
-  display: inline-flex;
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 40px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 9px 14px;
-  border: 1px solid #d64e16;
-  border-radius: 7px;
-  background: #d64e16;
-  color: #fff;
-  font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.advisor-ranking__action {
-  margin-top: auto;
-  padding-top: 16px;
-}
-
-.advisor-view-details:hover {
-  background: #bd4112;
-  border-color: #bd4112;
-}
-
-.advisor-view-details:focus-visible {
-  outline: 3px solid rgb(214 78 22 / 25%);
-  outline-offset: 2px;
-}
-
-.advisor-view-details:disabled {
-  border-color: #aaa59e;
-  background: #aaa59e;
-  cursor: not-allowed;
-}
-
 .advisor-general-advice {
   background: #edf4ed;
   color: #35593a;
@@ -504,21 +342,8 @@
   }
 }
 
-@media (max-width: 900px) {
-  .opportunity-advisor {
-    margin-right: 24px;
-    margin-left: 24px;
-  }
-
-  .advisor-rankings {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 600px) {
   .opportunity-advisor {
-    margin-right: 16px;
-    margin-left: 16px;
     padding: 17px;
   }
 
@@ -535,10 +360,6 @@
 
   .advisor-heading h2 {
     font-size: 19px;
-  }
-
-  .advisor-details-grid {
-    grid-template-columns: 1fr;
   }
 
   .advisor-primary-button,

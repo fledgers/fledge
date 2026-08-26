@@ -13,6 +13,10 @@ import { CATEGORIES, MAJORS } from '../data/opportunityFilters';
 import { useOpportunities } from '../hooks/useOpportunities';
 import { matchesMajor, matchesYear } from '../utils/filterOpportunities';
 import { isOpportunityExpired } from '../utils/formatOpportunity';
+import {
+  getAdvisorRecommendationsById,
+  rankOpportunitiesWithAdvisor,
+} from '../utils/advisorRanking';
 
 function getDeadlineTime(opportunity) {
   return opportunity.deadline ? new Date(opportunity.deadline).getTime() : Number.POSITIVE_INFINITY;
@@ -39,6 +43,7 @@ export default function Explore() {
   const [activeYear, setActiveYear] = useState(0); // 0 = all years
   const [sortBy, setSortBy] = useState('deadline');
   const [actionError, setActionError] = useState('');
+  const [advisorRankingState, setAdvisorRankingState] = useState(null);
   const activeOpportunities = useMemo(
     () => opportunities.filter(opportunity => !isOpportunityExpired(opportunity)),
     [opportunities]
@@ -136,6 +141,17 @@ export default function Explore() {
     advisorFilters.sortBy,
     advisorOpportunities.map((opportunity) => opportunity.id).join(','),
   ].join('|');
+  const activeAdvisorAnalysis = advisorRankingState?.key === advisorKey
+    ? advisorRankingState.analysis
+    : null;
+  const advisorRecommendationsById = useMemo(
+    () => getAdvisorRecommendationsById(activeAdvisorAnalysis),
+    [activeAdvisorAnalysis]
+  );
+  const displayedOpportunities = useMemo(
+    () => rankOpportunitiesWithAdvisor(filtered, activeAdvisorAnalysis),
+    [filtered, activeAdvisorAnalysis]
+  );
 
   return (
     <div style={{ fontFamily: "'DM Sans', sans-serif", background: '#F5F2ED', color: '#1a1a18', minHeight: '100vh' }}>
@@ -224,9 +240,19 @@ export default function Explore() {
 
       {/* Results count + sort */}
       <div style={{ padding: '0 48px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '13px', color: '#6a6a62' }}>
-          Showing {filtered.length} of {activeOpportunities.length} opportunities
-        </span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '9px', alignItems: 'center' }}>
+          <span style={{ fontSize: '13px', color: '#6a6a62' }}>
+            Showing {filtered.length} of {activeOpportunities.length} opportunities
+          </span>
+          {activeAdvisorAnalysis && (
+            <span style={{
+              background: '#FFF0E9', borderRadius: '12px', color: '#A9380F',
+              fontSize: '11px', fontWeight: 700, padding: '4px 9px',
+            }}>
+              ✨ AI ranking shown on cards
+            </span>
+          )}
+        </div>
         <select
           value={sortBy}
           onChange={e => setSortBy(e.target.value)}
@@ -252,6 +278,10 @@ export default function Explore() {
               key={advisorKey}
               filters={advisorFilters}
               opportunities={advisorOpportunities}
+              onAnalysisChange={analysis => setAdvisorRankingState({
+                analysis,
+                key: advisorKey,
+              })}
               profile={profile}
               totalCount={filtered.length}
               user={user}
@@ -268,14 +298,20 @@ export default function Explore() {
             No opportunities match your filters.
           </p>
         ) : (
-          filtered.map(opp => (
-            <OpportunityCard
-              key={opp.id}
-              opportunity={opp}
-              isBookmarked={savedOpportunityIds.includes(opp.id)}
-              onBookmark={toggleBookmark}
-            />
-          ))
+          displayedOpportunities.map(opp => {
+            const aiRecommendation = advisorRecommendationsById.get(opp.id);
+
+            return (
+              <OpportunityCard
+                aiRecommendation={aiRecommendation}
+                highlight={Number(aiRecommendation?.rank) === 1}
+                key={opp.id}
+                opportunity={opp}
+                isBookmarked={savedOpportunityIds.includes(opp.id)}
+                onBookmark={toggleBookmark}
+              />
+            );
+          })
         )}
       </div>
     </div>
