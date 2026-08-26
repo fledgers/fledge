@@ -332,6 +332,8 @@
 }
 
 .advisor-ranking {
+  display: flex;
+  flex-direction: column;
   padding: 18px;
   border: 1px solid #d8d1c8;
   border-radius: 8px;
@@ -444,6 +446,47 @@
 
 .advisor-detail--caution li::marker {
   color: #c44716;
+}
+
+.advisor-view-details {
+  display: inline-flex;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border: 1px solid #d64e16;
+  border-radius: 7px;
+  background: #d64e16;
+  color: #fff;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.advisor-ranking__action {
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.advisor-view-details:hover {
+  background: #bd4112;
+  border-color: #bd4112;
+}
+
+.advisor-view-details:focus-visible {
+  outline: 3px solid rgb(214 78 22 / 25%);
+  outline-offset: 2px;
+}
+
+.advisor-view-details:disabled {
+  border-color: #aaa59e;
+  background: #aaa59e;
+  cursor: not-allowed;
 }
 
 .advisor-general-advice {

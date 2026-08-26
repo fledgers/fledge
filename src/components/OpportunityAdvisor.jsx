@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  ExternalLink,
   MessageCircle,
   RefreshCw,
   Scale,
@@ -14,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { compareFilteredOpportunities } from '../data/opportunityAdvisorService';
+import { getOpportunityDetailsUrl } from '../utils/formatOpportunity';
 import './OpportunityAdvisor.css';
 
 const RECOMMENDATION_PROFILE_FIELDS = [
@@ -300,6 +302,7 @@ export default function OpportunityAdvisor({
           {result.analysis.recommendations.map(recommendation => {
             const opportunity = opportunitiesById.get(recommendation.opportunity_id);
             if (!opportunity) return null;
+            const detailsUrl = getOpportunityDetailsUrl(opportunity);
             const scoreAvailable = Number.isFinite(recommendation.fit_score);
             const workloadAvailable = Boolean(
               recommendation.workload_assessment
@@ -364,6 +367,29 @@ export default function OpportunityAdvisor({
                   label="Questions to check"
                   tone="neutral"
                 />
+
+                <div className="advisor-ranking__action">
+                  {detailsUrl ? (
+                    <a
+                      aria-label={`View details for ${opportunity.title}`}
+                      className="advisor-view-details"
+                      href={detailsUrl}
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
+                      <ExternalLink aria-hidden="true" size={16} />
+                      View Details
+                    </a>
+                  ) : (
+                    <button
+                      className="advisor-view-details"
+                      disabled
+                      type="button"
+                    >
+                      Details unavailable
+                    </button>
+                  )}
+                </div>
               </article>
             );
           })}
