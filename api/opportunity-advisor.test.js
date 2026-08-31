@@ -5,6 +5,7 @@ import {
   buildAdvisorMessages,
   extractEsthaOutput,
   parseAdvisorOutput,
+  validateAdvisorPreferenceAlignment,
   validateAdvisorRequest,
 } from './opportunity-advisor.js';
 
@@ -109,6 +110,42 @@ test('keeps cost evidence while compacting opportunity records and output', () =
   assert.equal(prompt.opportunities[0].source_url, undefined);
   assert.doesNotMatch(outputShapeText, /eligibility_checks/);
   assert.doesNotMatch(outputShapeText, /workload_assessment/);
+});
+
+test('requires low-cost explanations to address cost on the ranking and cards', () => {
+  const alignedAnalysis = {
+    ranking_basis: 'The first option ranks highest because its stated fee is S$1,145, while the other listing does not disclose a cost.',
+    preference_summary: 'The request for a low-cost programme made stated fees the primary criterion.',
+    recommendations: [
+      { reason: 'Its disclosed S$1,145 fee provides the clearest affordable option.' },
+      { reason: 'Its fee is not stated, so it cannot be confirmed as lower cost.' },
+    ],
+  };
+
+  assert.equal(
+    validateAdvisorPreferenceAlignment(
+      alignedAnalysis,
+      ['I want a low cost winter programme.'],
+    ),
+    alignedAnalysis,
+  );
+
+  assert.throws(
+    () => validateAdvisorPreferenceAlignment(
+      {
+        ranking_basis: 'The first option offers stronger cultural immersion.',
+        preference_summary: 'No preferences were provided.',
+        recommendations: [
+          { reason: 'Strong language programme.' },
+          { reason: 'Broad course offering.' },
+        ],
+      },
+      ['I want a low cost winter programme.'],
+    ),
+    (error) =>
+      error instanceof AdvisorServiceError
+      && error.code === 'estha_preference_mismatch',
+  );
 });
 
 test('extracts a direct OpenAI-compatible Estha completion', () => {

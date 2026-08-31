@@ -104,7 +104,8 @@
 .advisor-profile-note,
 .advisor-score-note,
 .advisor-error,
-.advisor-general-advice {
+.advisor-general-advice,
+.advisor-active-preference {
   display: flex;
   gap: 9px;
   align-items: flex-start;
@@ -128,6 +129,23 @@
 .advisor-error {
   background: #fff0eb;
   color: #943611;
+}
+
+.advisor-active-preference {
+  background: #fff;
+  border-left: 3px solid #c94f1a;
+  color: #4d3a31;
+}
+
+.advisor-active-preference strong {
+  display: block;
+  margin-bottom: 2px;
+  color: #a9380f;
+  font-size: 12px;
+}
+
+.advisor-active-preference p {
+  margin: 0;
 }
 
 .advisor-ranking-basis {

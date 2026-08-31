@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { compareFilteredOpportunities } from '../data/opportunityAdvisorService';
+import { appendAdvisorPreference } from '../utils/advisorPreferences';
 import './OpportunityAdvisor.css';
 
 const RECOMMENDATION_PROFILE_FIELDS = [
@@ -164,13 +165,30 @@ export default function OpportunityAdvisor({
 
   async function submitPreference(event) {
     event.preventDefault();
-    const preference = preferenceDraft.trim();
-    if (!preference) return;
+    if (!preferenceDraft.trim()) return;
 
-    const updatedHistory = [...preferenceHistory, preference]
-      .slice(-MAX_PREFERENCE_MESSAGES);
+    const updatedHistory = appendAdvisorPreference(
+      preferenceHistory,
+      preferenceDraft,
+      MAX_PREFERENCE_MESSAGES,
+    );
     setPreferenceHistory(updatedHistory);
     setPreferenceDraft('');
+    await runComparison(updatedHistory);
+  }
+
+  async function startComparison() {
+    const updatedHistory = appendAdvisorPreference(
+      preferenceHistory,
+      preferenceDraft,
+      MAX_PREFERENCE_MESSAGES,
+    );
+
+    if (preferenceDraft.trim()) {
+      setPreferenceHistory(updatedHistory);
+      setPreferenceDraft('');
+    }
+
     await runComparison(updatedHistory);
   }
 
@@ -268,6 +286,16 @@ export default function OpportunityAdvisor({
           <div className="advisor-error" role="alert">
             <AlertTriangle aria-hidden="true" size={18} />
             <span>{error}</span>
+          </div>
+        )}
+
+        {preferenceHistory.length > 0 && (
+          <div className="advisor-active-preference">
+            <MessageCircle aria-hidden="true" size={18} />
+            <div>
+              <strong>Your ranking requirement</strong>
+              <p>{preferenceHistory.at(-1)}</p>
+            </div>
           </div>
         )}
 
@@ -403,7 +431,7 @@ export default function OpportunityAdvisor({
         <button
           className="advisor-primary-button"
           disabled={status === 'loading'}
-          onClick={() => runComparison()}
+          onClick={startComparison}
           type="button"
         >
           {status === 'loading' ? (
@@ -417,7 +445,9 @@ export default function OpportunityAdvisor({
               {user
                 ? status === 'error'
                   ? 'Try ranking again'
-                  : 'Rank with AI'
+                  : preferenceDraft.trim()
+                    ? 'Apply requirement and rank'
+                    : 'Rank with AI'
                 : 'Sign in to compare'}
             </>
           )}
