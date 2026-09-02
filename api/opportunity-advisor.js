@@ -6,11 +6,13 @@ const MAX_OPPORTUNITIES = 8;
 const MAX_FILTER_TEXT_LENGTH = 200;
 const MAX_PREFERENCE_MESSAGES = 8;
 const MAX_PREFERENCE_LENGTH = 1_000;
-const MAX_OPPORTUNITY_DESCRIPTION_LENGTH = 1_600;
-const MAX_OPPORTUNITY_ELIGIBILITY_LENGTH = 700;
-const MAX_ESTHA_OUTPUT_TOKENS = 1_800;
-const ADVISOR_GENERATION_TIMEOUT_MS = 55_000;
-const MIN_RETRY_TIME_MS = 5_000;
+const MAX_OPPORTUNITY_DESCRIPTION_LENGTH = 900;
+const MAX_COST_DESCRIPTION_LENGTH = 360;
+const MAX_COST_EVIDENCE_LENGTH = 650;
+const MAX_OPPORTUNITY_ELIGIBILITY_LENGTH = 500;
+const MAX_ESTHA_OUTPUT_TOKENS = 1_300;
+const PRIMARY_ESTHA_TIMEOUT_MS = 42_000;
+const RECOVERY_ESTHA_TIMEOUT_MS = 12_000;
 const RETRYABLE_OUTPUT_CODES = new Set([
   'estha_invalid_format',
   'estha_invalid_json',
@@ -144,14 +146,36 @@ function toProfilePrompt(profile) {
   };
 }
 
-function toOpportunityPrompt(opportunity) {
+function getCostEvidence(description) {
+  const text = typeof description === 'string' ? description : '';
+  const segments = text
+    .split(/(?<=[.!?])\s+|[\n;]+/)
+    .map(segment => cleanText(segment, MAX_COST_EVIDENCE_LENGTH))
+    .filter(Boolean);
+  const costSegments = segments.filter(segment =>
+    COST_EXPLANATION_PATTERN.test(segment)
+  );
+
+  if (costSegments.length === 0) {
+    return 'No explicit fee, funding, or estimated cost appears in the supplied listing description.';
+  }
+
+  return cleanText(costSegments.join(' '), MAX_COST_EVIDENCE_LENGTH);
+}
+
+function toOpportunityPrompt(opportunity, { costIsRequired = false } = {}) {
   return {
     id: opportunity.id,
     title: cleanText(opportunity.title, 300),
     description: cleanText(
       opportunity.description,
-      MAX_OPPORTUNITY_DESCRIPTION_LENGTH,
+      costIsRequired
+        ? MAX_COST_DESCRIPTION_LENGTH
+        : MAX_OPPORTUNITY_DESCRIPTION_LENGTH,
     ),
+    ...(costIsRequired
+      ? { cost_evidence: getCostEvidence(opportunity.description) }
+      : {}),
     category: opportunity.category,
     organisation: cleanText(opportunity.organisation, 300),
     eligibility: cleanText(
@@ -176,6 +200,8 @@ export function buildAdvisorMessages({
   filters,
   preferenceMessages = [],
 }) {
+  const latestPreference = cleanPreferenceMessages(preferenceMessages).at(-1) || '';
+  const costIsRequired = COST_PREFERENCE_PATTERN.test(latestPreference);
   const outputShape = {
     overview: 'Short comparison overview',
     ranking_basis:
@@ -229,7 +255,9 @@ export function buildAdvisorMessages({
         selected_filters: filters,
         student_profile: toProfilePrompt(profile),
         student_preference_messages: preferenceMessages,
-        opportunities: opportunities.map(toOpportunityPrompt),
+        opportunities: opportunities.map(opportunity =>
+          toOpportunityPrompt(opportunity, { costIsRequired })
+        ),
       }),
     },
   ];
@@ -770,7 +798,7 @@ function unwrapAdvisorPayload(value) {
   return current;
 }
 
-async function callEstha(messages, timeoutMs = ADVISOR_GENERATION_TIMEOUT_MS) {
+async function callEstha(messages, timeoutMs = PRIMARY_ESTHA_TIMEOUT_MS) {
   const apiKey =
     process.env.ESTHA_OPPORTUNITY_API_KEY ||
     process.env.ESTHA_API_KEY;
@@ -890,13 +918,13 @@ function buildRepairMessages(
     typeof output === 'string'
       ? output
       : JSON.stringify(output);
+  const priorResponse = cleanText(previousOutput, 4_000);
 
   return [
     ...messages,
-    {
-      role: 'assistant',
-      content: cleanText(previousOutput, 12_000),
-    },
+    ...(priorResponse
+      ? [{ role: 'assistant', content: priorResponse }]
+      : []),
     {
       role: 'user',
       content: [
@@ -922,6 +950,66 @@ function buildRepairMessages(
       ].join(' '),
     },
   ];
+}
+
+export async function generateAdvisorAnalysis({
+  messages,
+  opportunities,
+  preferenceMessages = [],
+  requestCompletion = callEstha,
+}) {
+  let output;
+  let recoveryAttempted = false;
+
+  try {
+    output = await requestCompletion(
+      messages,
+      PRIMARY_ESTHA_TIMEOUT_MS,
+    );
+  } catch (error) {
+    if (!(error instanceof AdvisorServiceError) || error.code !== 'estha_timeout') {
+      throw error;
+    }
+
+    recoveryAttempted = true;
+    output = await requestCompletion(
+      buildRepairMessages(
+        messages,
+        '',
+        opportunities,
+        preferenceMessages,
+      ),
+      RECOVERY_ESTHA_TIMEOUT_MS,
+    );
+  }
+
+  try {
+    return validateAdvisorPreferenceAlignment(
+      parseAdvisorOutput(output, opportunities),
+      preferenceMessages,
+    );
+  } catch (error) {
+    const canRecover = !recoveryAttempted
+      && error instanceof AdvisorServiceError
+      && RETRYABLE_OUTPUT_CODES.has(error.code);
+
+    if (!canRecover) throw error;
+
+    const repairedOutput = await requestCompletion(
+      buildRepairMessages(
+        messages,
+        output,
+        opportunities,
+        preferenceMessages,
+      ),
+      RECOVERY_ESTHA_TIMEOUT_MS,
+    );
+
+    return validateAdvisorPreferenceAlignment(
+      parseAdvisorOutput(repairedOutput, opportunities),
+      preferenceMessages,
+    );
+  }
 }
 
 export default async function handler(request, response) {
@@ -1024,50 +1112,11 @@ export default async function handler(request, response) {
       filters,
       preferenceMessages,
     });
-    const generationStartedAt = Date.now();
-    let output = await callEstha(
+    const analysis = await generateAdvisorAnalysis({
       messages,
-      ADVISOR_GENERATION_TIMEOUT_MS,
-    );
-    let analysis;
-    let parsingError = null;
-
-    try {
-      analysis = validateAdvisorPreferenceAlignment(
-        parseAdvisorOutput(output, opportunities),
-        preferenceMessages,
-      );
-    } catch (error) {
-      parsingError = error;
-    }
-
-    const remainingTime =
-      ADVISOR_GENERATION_TIMEOUT_MS -
-      (Date.now() - generationStartedAt);
-    const canRetryParsingError =
-      parsingError instanceof AdvisorServiceError &&
-      RETRYABLE_OUTPUT_CODES.has(parsingError.code);
-    const shouldRetry =
-      remainingTime >= MIN_RETRY_TIME_MS &&
-      canRetryParsingError;
-
-    if (shouldRetry) {
-      output = await callEstha(
-        buildRepairMessages(
-          messages,
-          output,
-          opportunities,
-          preferenceMessages,
-        ),
-        remainingTime,
-      );
-      analysis = validateAdvisorPreferenceAlignment(
-        parseAdvisorOutput(output, opportunities),
-        preferenceMessages,
-      );
-    }
-
-    if (parsingError && !analysis) throw parsingError;
+      opportunities,
+      preferenceMessages,
+    });
 
     return sendJson(response, 200, {
       analysis,

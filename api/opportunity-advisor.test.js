@@ -4,6 +4,7 @@ import {
   AdvisorServiceError,
   buildAdvisorMessages,
   extractEsthaOutput,
+  generateAdvisorAnalysis,
   parseAdvisorOutput,
   validateAdvisorPreferenceAlignment,
   validateAdvisorRequest,
@@ -34,6 +35,31 @@ function comparisonJson() {
       },
     ],
     general_advice: 'Check both deadlines.',
+  });
+}
+
+function costComparisonJson() {
+  return JSON.stringify({
+    overview: 'The options are ranked by disclosed cost.',
+    ranking_basis: 'The first option has a stated S$1,145 fee, while the second does not disclose its cost.',
+    preference_summary: 'The request for a cheap programme made cost the primary criterion.',
+    recommendations: [
+      {
+        opportunity_id: FIRST_ID,
+        rank: 1,
+        fit_score: 90,
+        fit_label: 'Strong fit',
+        reason: 'Its disclosed S$1,145 fee is the clearest low-cost evidence.',
+      },
+      {
+        opportunity_id: SECOND_ID,
+        rank: 2,
+        fit_score: 70,
+        fit_label: 'Possible fit',
+        reason: 'Its fee is not stated, so it cannot be confirmed as cheaper.',
+      },
+    ],
+    general_advice: 'Verify the final payable fee before applying.',
   });
 }
 
@@ -105,11 +131,89 @@ test('keeps cost evidence while compacting opportunity records and output', () =
   const outputShapeText = messages[0].content;
 
   assert.match(prompt.opportunities[0].description, /Programme fee: S\$1,250/);
-  assert.ok(prompt.opportunities[0].description.length <= 1_600);
+  assert.ok(prompt.opportunities[0].description.length <= 360);
+  assert.equal(prompt.opportunities[0].cost_evidence, 'Programme fee: S$1,250.');
+  assert.match(prompt.opportunities[1].cost_evidence, /fee is not stated/i);
   assert.deepEqual(prompt.opportunities[0].eligible_majors, ['computer_science']);
   assert.equal(prompt.opportunities[0].source_url, undefined);
   assert.doesNotMatch(outputShapeText, /eligibility_checks/);
   assert.doesNotMatch(outputShapeText, /workload_assessment/);
+});
+
+test('reserves a short recovery attempt when the primary Estha call times out', async () => {
+  const calls = [];
+  const opportunities = [
+    { id: FIRST_ID, title: 'Affordable Winter School' },
+    { id: SECOND_ID, title: 'Unknown-cost Winter School' },
+  ];
+  const preferenceMessages = ['I want a cheap winter program.'];
+  const messages = buildAdvisorMessages({
+    filters: { categories: ['winter_programme'] },
+    opportunities,
+    preferenceMessages,
+    profile: null,
+  });
+  const requestCompletion = async (requestMessages, timeoutMs) => {
+    calls.push({ requestMessages, timeoutMs });
+
+    if (calls.length === 1) {
+      throw new AdvisorServiceError('Primary request timed out.', {
+        status: 504,
+        code: 'estha_timeout',
+      });
+    }
+
+    return costComparisonJson();
+  };
+
+  const analysis = await generateAdvisorAnalysis({
+    messages,
+    opportunities,
+    preferenceMessages,
+    requestCompletion,
+  });
+
+  assert.equal(analysis.recommendations[0].opportunity_id, FIRST_ID);
+  assert.deepEqual(calls.map(({ timeoutMs }) => timeoutMs), [42_000, 12_000]);
+  assert.match(calls[1].requestMessages.at(-1).content, /cheap winter program/i);
+});
+
+test('uses the bounded recovery attempt for a preference-mismatched explanation', async () => {
+  const calls = [];
+  const opportunities = [
+    { id: FIRST_ID, title: 'Affordable Winter School' },
+    { id: SECOND_ID, title: 'Unknown-cost Winter School' },
+  ];
+  const preferenceMessages = ['I want a cheap winter program.'];
+  const messages = buildAdvisorMessages({
+    filters: { categories: ['winter_programme'] },
+    opportunities,
+    preferenceMessages,
+    profile: null,
+  });
+  const requestCompletion = async (_requestMessages, timeoutMs) => {
+    calls.push(timeoutMs);
+    return calls.length === 1
+      ? JSON.stringify({
+          ranking_basis: 'The first option has stronger cultural immersion.',
+          preference_summary: 'No preferences were provided.',
+          recommendations: [
+            { opportunity_id: FIRST_ID, rank: 1, fit_score: 90, reason: 'Strong language focus.' },
+            { opportunity_id: SECOND_ID, rank: 2, fit_score: 70, reason: 'Broad course selection.' },
+          ],
+        })
+      : costComparisonJson();
+  };
+
+  const analysis = await generateAdvisorAnalysis({
+    messages,
+    opportunities,
+    preferenceMessages,
+    requestCompletion,
+  });
+
+  assert.match(analysis.ranking_basis, /S\$1,145/);
+  assert.deepEqual(calls, [42_000, 12_000]);
 });
 
 test('requires low-cost explanations to address cost on the ranking and cards', () => {
